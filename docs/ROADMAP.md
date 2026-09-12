@@ -440,12 +440,21 @@ reads them, so moving a node cannot emit a patch — but M6 has to persist them,
 and a graph that reopened with every node stacked at the origin would have lost
 the arrangement the user spent longest on.
 
-**Two failures worth recording**, both found by driving the real panel rather
+**A drag is one gesture, on the canvas as in AE.** React Flow holds the position
+while the pointer is down; the model learns the final one at drag stop. P1.5's
+rule, applied one layer up.
+
+**Three failures worth recording**, all found by driving the real panel rather
 than by reading it:
 
 - `overflow: hidden` on a node card **clips its ports** — a handle sits astride
   the card's edge, and the half that gets clipped is the half the pointer lands
   on, so every attempt to draw a wire drags the node instead.
+- Re-deriving the canvas from the model on **every pointer move** made the whole
+  CEP panel flicker: each move rebuilt every node and edge object with a new
+  identity, so every card re-rendered, sixty times a second. Pan and zoom never
+  flickered, because React Flow owns the viewport and React is not in that path —
+  which is the observation that named the bug.
 - React Flow **discards an edge whose handle does not exist, in silence**. The
   wire landed in the model and never appeared, because an edge's source is stored
   the way After Effects addresses it (`.transform.position`, what goes into the

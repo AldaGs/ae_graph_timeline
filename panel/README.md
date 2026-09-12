@@ -50,11 +50,22 @@ moving a node can never emit a patch — but M6 has to persist them, and a graph
 that reopened with every node stacked at the origin would have lost the thing the
 user spent longest arranging.
 
-## Two things that bite
+**A drag is one gesture.** While the pointer is down, React Flow keeps the
+position; the model learns the final one at drag stop. That is the same rule
+P1.5 applies to After Effects — a drag is worth one write, at the end of it.
+
+## Three things that bite
 
 **`overflow: hidden` on a node card eats its ports.** A handle sits astride the
 card's edge, and clipping takes the half the pointer lands on — so every attempt
 to draw a wire drags the node instead. ExtendBlueNode documents the same trap.
+
+**Re-deriving the canvas on every pointer move flickers the whole panel.** The
+first version pushed each position change through the model and re-rendered from
+it, so sixty times a second every node and edge object was rebuilt with a new
+identity and every card re-rendered. Inside CEP that reads as the panel blinking.
+Panning and zooming never did it, because React Flow owns the viewport and React
+is not involved — and that asymmetry is what named the bug.
 
 **An edge pointing at a handle that does not exist is dropped in silence.** No
 warning, no error: the wire lands in the model and simply never appears. The

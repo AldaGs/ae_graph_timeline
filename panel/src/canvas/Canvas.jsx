@@ -1,39 +1,60 @@
 // The canvas.
 //
-// React Flow renders the graph and owns nothing. Every gesture goes through
-// src/view.js into the graph object, and the graph is re-rendered from there -
-// so there is exactly one source of truth and the canvas cannot silently hold a
-// second copy of it.
+// React Flow renders the graph and owns nothing that lasts: every gesture goes
+// through src/view.js into the graph object, and the canvas is re-seeded from
+// there. One source of truth, and no incremental canvas state to fall out of
+// step with the model.
 //
-// A drag is a GESTURE in P1.5's sense. Node positions never reach After Effects,
-// but wiring and deleting do, and when M3 attaches the write loop the begin/end
-// pair here is what makes a drag cost one undo entry instead of one per frame.
+// The exception is a drag IN PROGRESS, and it is a deliberate one.
+//
+// The first version re-derived every node and every edge from the graph on every
+// pointer move, which is sixty rebuilds a second of an array whose objects are
+// all new - so React re-rendered every card, and the whole CEP panel flickered.
+// Panning and zooming never did, because React Flow handles the viewport itself
+// and React is not involved at all. That asymmetry is what named the bug.
+//
+// So React Flow keeps the positions while the pointer is down, and the model
+// learns the final one when it comes up. That is not a compromise of the "graph
+// owns everything" rule; it is the same rule P1.5 applies to After Effects. A
+// drag is ONE gesture, and it is worth exactly one write at the end of it.
 
-import { useCallback, useMemo } from 'react';
-import ReactFlow, { Background, Controls, MiniMap, ReactFlowProvider } from 'reactflow';
+import { useCallback, useEffect } from 'react';
+import ReactFlow, {
+  Background, Controls, MiniMap, ReactFlowProvider,
+  useEdgesState, useNodesState,
+} from 'reactflow';
 import 'reactflow/dist/style.css';
 
 import LayerNode from './LayerNode.jsx';
 import {
   toFlowNodes, toFlowEdges, toParentEdges,
-  connect, disconnect, applyNodeChanges, ViewError,
+  connect, disconnect, removeNode, ViewError,
 } from '../../../src/view.js';
+import { moveNode } from '../../../src/graph.js';
 
+// Defined once, outside the component. A fresh object here would tell React Flow
+// its node types changed on every render, and it re-mounts every node when they
+// do - which looks exactly like the flicker this file is about.
 const nodeTypes = { ntlLayer: LayerNode };
 
 const EXPRESSION_EDGE = { stroke: '#5b9dd9', strokeWidth: 2 };
 const PARENT_EDGE = { stroke: '#c8a45c', strokeWidth: 2, strokeDasharray: '6 4' };
 
+const wiresOf = (graph) => [
+  ...toFlowEdges(graph).map((e) => ({ ...e, type: 'default', style: EXPRESSION_EDGE })),
+  ...toParentEdges(graph).map((e) => ({ ...e, type: 'default', style: PARENT_EDGE })),
+];
+
 export default function Canvas({ graph, version, onChanged, onError, onSelect }) {
-  // Rebuilt whenever the graph version bumps. Cheap at P1 sizes, and it removes
-  // a whole class of bug: there is no incremental canvas state to fall out of
-  // step with the model.
-  const nodes = useMemo(() => toFlowNodes(graph), [graph, version]);
-  const edges = useMemo(() => {
-    const expression = toFlowEdges(graph).map((e) => ({ ...e, type: 'default', style: EXPRESSION_EDGE }));
-    const parents = toParentEdges(graph).map((e) => ({ ...e, type: 'default', style: PARENT_EDGE }));
-    return [...expression, ...parents];
-  }, [graph, version]);
+  const [nodes, setNodes, onNodesChange] = useNodesState(() => toFlowNodes(graph));
+  const [edges, setEdges, onEdgesChange] = useEdgesState(() => wiresOf(graph));
+
+  // Re-seeded only when the GRAPH changed - a node added, a wire drawn, a rename.
+  // Never during a drag, because a drag does not bump the version.
+  useEffect(() => {
+    setNodes(toFlowNodes(graph));
+    setEdges(wiresOf(graph));
+  }, [graph, version, setNodes, setEdges]);
 
   const guard = useCallback((fn) => {
     // A refusal from the view layer is a sentence for the user, not a crash:
@@ -47,23 +68,42 @@ export default function Canvas({ graph, version, onChanged, onError, onSelect })
   }, [onError]);
 
   const handleNodesChange = useCallback((changes) => {
-    const { structural, moved } = applyNodeChanges(graph, changes);
-    // `structural` is the flag M3 turns into loop.touch(). A move is reported
-    // separately so the redraw happens without ever marking the comp dirty.
-    if (structural || moved) onChanged?.({ structural, moved });
+    // React Flow moves the one node the pointer is on. Positions land in the
+    // model at drag stop; everything else here is about the canvas.
+    onNodesChange(changes);
+
+    let structural = false;
+    for (const change of changes) {
+      if (change.type === 'remove' && removeNode(graph, change.id)) structural = true;
+    }
+    if (structural) onChanged?.({ structural: true, moved: false });
+  }, [graph, onNodesChange, onChanged]);
+
+  // The end of the gesture. Every node that moved is written to the model at
+  // once, because a multi-selection drags together.
+  const handleNodeDragStop = useCallback((_event, _node, dragged) => {
+    const moved = dragged?.length ? dragged : (_node ? [_node] : []);
+    for (const n of moved) moveNode(graph, n.id, n.position.x, n.position.y);
+    // Reported, but with structural false: where a node sits is a fact about the
+    // drawing, and it must never mark the comp dirty or reach After Effects.
+    if (moved.length) onChanged?.({ structural: false, moved: true });
   }, [graph, onChanged]);
 
   const handleEdgesChange = useCallback((changes) => {
+    onEdgesChange(changes);
     let structural = false;
     for (const change of changes) {
       if (change.type !== 'remove') continue;
       if (disconnect(graph, change.id)) structural = true;
     }
     if (structural) onChanged?.({ structural: true, moved: false });
-  }, [graph, onChanged]);
+  }, [graph, onEdgesChange, onChanged]);
 
   const handleConnect = useCallback((connection) => {
     const result = guard(() => connect(graph, connection));
+    // No edge is pushed into React Flow here. The graph took the wire, the
+    // version bumps, and the effect above re-seeds - so what is drawn is what the
+    // model holds, rather than a wire the canvas invented and the model refused.
     if (result) onChanged?.({ structural: true, moved: false, what: result });
   }, [graph, guard, onChanged]);
 
@@ -78,6 +118,7 @@ export default function Canvas({ graph, version, onChanged, onError, onSelect })
         edges={edges}
         nodeTypes={nodeTypes}
         onNodesChange={handleNodesChange}
+        onNodeDragStop={handleNodeDragStop}
         onEdgesChange={handleEdgesChange}
         onConnect={handleConnect}
         onSelectionChange={handleSelectionChange}

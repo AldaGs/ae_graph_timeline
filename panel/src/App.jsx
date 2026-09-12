@@ -64,11 +64,16 @@ export default function App() {
   useEffect(() => { void ping(); }, [ping]);
 
   const onChanged = useCallback(({ structural }) => {
+    // A redraw ONLY when the graph itself changed. A node that merely moved has
+    // already been drawn by React Flow, and re-seeding the canvas for it would
+    // rebuild every card - which is the flicker that made the whole CEP panel
+    // blink on every drag.
+    if (!structural) return;
     redraw();
     // Where M3 hooks in: `structural` is exactly the signal the write loop's
     // touch() wants. Until then it is shown rather than acted on, so what the
     // panel is and is not doing stays legible.
-    if (structural) setMessage('the graph changed - not written to After Effects yet (M3)');
+    setMessage('the graph changed - not written to After Effects yet (M3)');
   }, [redraw]);
 
   const addLayer = useCallback((kind) => {
