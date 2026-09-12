@@ -50,11 +50,23 @@ npm run preflight   # ES3 pre-flight on the .jsx files
 `test/fake-ae.js` runs the **real** `patch.jsx` inside a VM against a mock object
 model, so the tests execute the same text After Effects will.
 
-**The in-AE pass passed — 31/31 on AE 26.5x89.** `jsx/p1-check.jsx` asks the one
-question the offline tests cannot: *does After Effects behave like the fake?* It
-does. Identity, the revision gate, expression round-tripping, **one undo entry
-per patch**, rollback by inverse and every refusal all hold, and a property write
-costs 47.6 µs against the 130 µs budgeted.
+**The in-AE pass passed — 34/34 on AE 26.5x89, so P1.1 and P1.3 are closed.**
+`jsx/p1-check.jsx` asks the one question the offline tests cannot: *does After
+Effects behave like the fake?* It does. Identity, the revision gate, expression
+round-tripping, **one undo entry per patch**, rollback by inverse, a patch
+applied straight after the user's Ctrl+Z, and every refusal all hold — and a
+property write costs ~47 µs against the 130 µs budgeted.
+
+```bash
+# the in-AE pass: File > Scripts > Run Script File... > jsx/p1-check.jsx
+```
+
+It builds its own comp, deletes it afterwards, and carries two controls: a
+positive one proving Undo really undoes, and a check **designed to fail** — if
+that one ever passes the run is marked VOID rather than PASS. Five times in this
+project the instrument, not After Effects, turned out to be the finding.
+
+**Next: P1.4's drift guard and P1.5's coalesced write loop.**
 
 ## Spike instruments
 
