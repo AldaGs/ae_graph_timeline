@@ -50,11 +50,11 @@ npm run preflight   # ES3 pre-flight on the .jsx files
 `test/fake-ae.js` runs the **real** `patch.jsx` inside a VM against a mock object
 model, so the tests execute the same text After Effects will.
 
-**The in-AE pass is owed and in progress.** `jsx/p1-check.jsx` asks the one
-question the offline tests cannot: *does After Effects behave like the fake?*
-Run 1 confirmed identity, the revision gate, expression round-tripping and every
-refusal — and left the undo behaviour unresolved, because the checks read through
-a cached handle and could not tell a stale read from a correct one.
+**The in-AE pass passed — 31/31 on AE 26.5x89.** `jsx/p1-check.jsx` asks the one
+question the offline tests cannot: *does After Effects behave like the fake?* It
+does. Identity, the revision gate, expression round-tripping, **one undo entry
+per patch**, rollback by inverse and every refusal all hold, and a property write
+costs 47.6 µs against the 130 µs budgeted.
 
 ## Spike instruments
 

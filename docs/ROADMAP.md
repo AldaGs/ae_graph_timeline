@@ -216,8 +216,15 @@ escaped text that can never run.
 two undo-discipline tests; dropping the keyframe guard failed exactly the
 keyframed-property test.
 
-**Still owed for both P1.1 and P1.3: the in-AE pass.** Nothing offline proves
-After Effects behaves like the fake — only that the pieces agree with each other.
+**The in-AE pass PASSED — 31/31 on AE 26.5x89** (`docs/SPIKES.md`). Identity, the
+revision gate, expression round-tripping, one-undo-per-patch, rollback by inverse
+and every refusal all behave as the fake predicted; cached handles agree with
+fresh lookups throughout. Writes measured 47.6 µs against the 130 µs budgeted.
+
+One sequence is still open: run 1 failed on *undo → write → undo*, run 2 no
+longer performed it, and run 3 puts it back rather than calling it fixed.
+
+**Next: P1.4's drift guard and P1.5's coalesced write loop.**
 
 **Speed is no longer the top risk.** S1 promoted a different question: with the
 graph as the source of truth, After Effects has no way to tell us the user edited
@@ -285,9 +292,9 @@ the live comp and emits a patch. Mutating the object updates After Effects.
 
 | | Step | Owes |
 |---|---|---|
-| P1.1 | Graph model + a comp state reader | **DONE offline** — `src/graph.js`, `jsx/reader.jsx` (scans; read-only; revision-stamped), `src/reader.js` (validates, refuses partial reads). 12 tests, falsified. **In-AE pass still owed.** |
+| P1.1 | Graph model + a comp state reader | **DONE offline** — `src/graph.js`, `jsx/reader.jsx` (scans; read-only; revision-stamped), `src/reader.js` (validates, refuses partial reads). 12 tests, falsified. **VERIFIED IN AE** (run 2, 31/31). |
 | P1.2 | Reconciler: diff graph vs comp state → patch | **DONE** (`src/diff.js`) — pure, read-only, 15/15 offline tests green and falsified against a broken control |
-| P1.3 | Patch emitter: one undo group, properties resolved once, stable ids | **DONE offline** — `jsx/patch.jsx` + `src/patch.js`. Stops on failure, returns an inverse for rollback, refuses stale/keyframed/ambiguous/user-owned. 17 tests run the real JSX in a VM; falsified twice. **In-AE pass owed.** |
+| P1.3 | Patch emitter: one undo group, properties resolved once, stable ids | **DONE offline** — `jsx/patch.jsx` + `src/patch.js`. Stops on failure, returns an inverse for rollback, refuses stale/keyframed/ambiguous/user-owned. 17 tests run the real JSX in a VM; falsified twice. **VERIFIED IN AE** (run 2, 31/31). |
 | P1.4 | Drift guard, using S4: revision gate → structural snapshot → digest compare | the reconciler refuses or reports when the comp moved under it, at ~0 cost while idle |
 | P1.5 | Coalesced write loop — one undo group per gesture, not per frame (S5) | edit the object in a REPL, watch AE follow, with the user's undo history intact afterwards |
 

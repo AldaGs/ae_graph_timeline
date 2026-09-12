@@ -6,9 +6,12 @@
 //
 // Two measured decisions are baked in:
 //
-//   - It SCANS. S3 measured app.project.layerByID() at 71.5 µs per call against
-//     0.48 ms for a full 200-layer scan - so one scan beats seven lookups, and
-//     we need all of them anyway.
+//   - It SCANS, because it needs every layer anyway - one pass, no lookups.
+//     (S3 measured layerByID at 71.5 µs a call on a 200-layer comp; the P1
+//     in-AE pass measured 3.2-3.3 µs on a 4-layer one, twice. The gap is
+//     unexplained and may mean the lookup scales with project size. The
+//     decision does not rest on it: a reader that wants all n layers has
+//     nothing to gain from n lookups at any price.)
 //   - It resolves each property ONCE and reads through the handle. S4/Wall 1b:
 //     resolution, not reading, is what a property access actually costs.
 //

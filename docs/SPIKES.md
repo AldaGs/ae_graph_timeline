@@ -1224,3 +1224,64 @@ not firing because the group is not yet committed. **Run 2 separates them** by:
 Nothing about P1's design changes yet — none of this is evidence against the
 reconciler. It is evidence that the undo checks could not tell us what they were
 being asked.
+
+---
+
+## P1 in-AE pass — run 2 (2026-09-12, AE 26.5x89): **PASS**
+
+**31 of 31, harness control valid.** Every assumption the offline suite was built
+on now has a measurement behind it, on real After Effects.
+
+### The stale-handle theory is dead
+
+Run 2 took every read twice at the same instant - through a handle cached before
+the undos, and through a fresh scan - across nine steps. **`agree: true` on all
+nine; `cachedHandleDisagreements: 0`.** A cached property handle reads true
+through patches, undos and rollbacks. That was the leading explanation for run
+1's failures and it is now falsified.
+
+`undoTrace` also shows the undo mechanism working exactly as S5 described:
+
+| step | value | revision |
+|---|---|---|
+| before the patch | 100 | 13699 |
+| after the patch (10 ops) | 19 | 13709 |
+| control write of 7 | 7 | 13710 |
+| after undo #1 (the control) | 19 | 13711 |
+| after undo #2 (the patch) | **100** | 13712 |
+
+Ten writes, **one** undo entry. And `revision` moves *forward* on an undo
+(13711 → 13712), never backward - so the drift gate cannot be fooled by one.
+
+### What was left unexercised, and has been put back
+
+Run 2 passed after the undo checks were **reordered**. That retired the
+stale-handle theory but also stopped performing the one sequence that actually
+failed in run 1: *undo, then write, then undo that write.*
+
+**Fixing a harness by no longer running the failing sequence proves nothing.** So
+`6c` now performs it deliberately, plus a patch afterwards - because that is
+precisely what production does: the user presses Ctrl+Z, and the graph re-asserts
+itself on the next gesture. Run 3 covers it.
+
+Run 1's failure there remains **unexplained**, and is recorded as such rather
+than as "fixed".
+
+### Prices, two runs, consistent
+
+| | run 1 | run 2 | P0 said |
+|---|---|---|---|
+| per property write | 48.8 µs | **47.6 µs** | 130 µs |
+| read round trip (4 layers) | 0.95 ms | 0.96 ms | — |
+| patch round trip (10 ops) | 0.75 ms | 0.70 ms | — |
+| scan | 0.094 ms | 0.086 ms | — |
+| `layerByID` | 3.3 µs | **3.2 µs** | 71.5 µs (S3) |
+
+Writes are **2.7× cheaper** than budgeted.
+
+The `layerByID` gap reproduces across both runs, so it is not noise. S3 measured
+it on a 200-layer comp and this on a 4-layer one, which suggests **the lookup may
+scale with project size** - if so, scanning gets *better* at size, not worse. Left
+as an open question; the reader's header no longer quotes the 71.5 µs ratio as
+though it were settled. The decision does not depend on it either way: a reader
+that wants all n layers has nothing to gain from n lookups at any price.

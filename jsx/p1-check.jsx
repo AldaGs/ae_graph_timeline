@@ -264,6 +264,38 @@ function ntlcRun() {
     ntlcCheck('ONE undo reverts the WHOLE patch', beforePatch, afterPatchUndo,
               'ten writes, one undo entry - and the second undo in a row');
 
+    // ---- 6c. a write IMMEDIATELY after an undo ---------------------------
+    //
+    // Run 2 reordered the undo checks and passed clean - which retired the
+    // stale-handle theory but also stopped exercising the one sequence that
+    // actually failed in run 1: an undo, then a write, then an undo of THAT
+    // write. Fixing a harness by no longer performing the failing sequence
+    // proves nothing, so the sequence is put back here on purpose.
+    //
+    // It is not academic. It is exactly what production does: the user presses
+    // Ctrl+Z, and the panel patches again on the next gesture.
+    app.beginUndoGroup('NTL P1 check — post-undo write');
+    ntlrScanTags(comp).byTag['a'].property('ADBE Transform Group')
+        .property('ADBE Opacity').setValue(33);
+    app.endUndoGroup();
+    ntlcCheck('a write lands immediately after an undo', 33,
+              ntlcTrace('write of 33, straight after two undos'));
+
+    app.executeCommand(16);
+    var afterThird = ntlcTrace('after undo #3 (the post-undo write)');
+    ntlcCheck('undo still works after an undo-then-write sequence', 'true',
+              String(afterThird) !== '33' ? 'true' : 'false',
+              'this is the sequence that failed in run 1');
+
+    // And a patch after all that, since the reconciler will be doing exactly
+    // this: the graph re-asserts itself after the user has undone something.
+    var afterUndoPatch = NTL_ApplyPatch(NTLC_COMP,
+        [{ op: 'setProp', node: 'a', prop: 'opacity', to: 61 }],
+        'NTL P1 check — patch after undo', app.project.revision);
+    results.postUndoPatchReceipt = afterUndoPatch;
+    ntlcCheck('a patch applies normally after an undo', 61,
+              ntlcTrace('after the post-undo patch'));
+
     // ---- 7. the stale guard fires ----------------------------------------
     var stale = NTL_ApplyPatch(NTLC_COMP,
         [{ op: 'setProp', node: 'a', prop: 'opacity', to: 3 }],
