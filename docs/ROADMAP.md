@@ -308,12 +308,28 @@ false across the boundary — so every array-valued property (position, scale,
 anchor point) silently vanished from the read. After Effects is one realm and
 would never have shown it.
 
-**Owed: the in-AE pass.** `jsx/p1b-check.jsx` asks what the fake cannot — does
-`app.project.revision` really move for each edit we assume (and for an edit in
-another comp), are two reads of an untouched comp byte-identical, and is a
-twelve-op patch really **one** undo entry.
+**The in-AE pass PASSED — 25/25 on AE 26.5x89** (`jsx/p1b-check.jsx`,
+`docs/SPIKES.md`). `app.project.revision` moves on every edit the guard must
+notice — property, rename, comment, expression, parent, create, delete, undo —
+**and on an edit in another comp**, which is the measurement the digest tier
+exists for. Two reads of an untouched comp are byte-identical, so the digest has
+something stable to sit on. A **twelve-op** patch across three layers is **one
+undo entry**: one Ctrl+Z put back every value and every name.
 
-**Next: run `jsx/p1b-check.jsx` inside After Effects.**
+The gate measured **0.678 µs**, 3.4× cheaper than S4 — an idle reconciler
+polling at 10 Hz spends under 7 µs a second on drift detection. A full
+structural read costs 1.34 ms against a 400 ms patch budget.
+
+Two observations with no pass condition fixed in advance: **selecting a layer
+does not move the revision, and neither does moving the time indicator** — the
+two likeliest sources of spurious wake-ups, and neither costs a read.
+
+Run 1 was 21/23, and both reds were the instrument: a stability check that
+compared the read's own stopwatch, and an undo that ran one check too late and
+resurrected the layer the delete check had removed. Fifth and sixth times in this
+project that the instrument, not After Effects, was the finding.
+
+**P1.4 and P1.5 are closed. P1 is done.**
 
 **Speed is no longer the top risk.** S1 promoted a different question: with the
 graph as the source of truth, After Effects has no way to tell us the user edited
@@ -384,12 +400,21 @@ the live comp and emits a patch. Mutating the object updates After Effects.
 | P1.1 | Graph model + a comp state reader | **DONE offline** — `src/graph.js`, `jsx/reader.jsx` (scans; read-only; revision-stamped), `src/reader.js` (validates, refuses partial reads). 12 tests, falsified. **VERIFIED IN AE** (run 2, 31/31). |
 | P1.2 | Reconciler: diff graph vs comp state → patch | **DONE** (`src/diff.js`) — pure, read-only, 15/15 offline tests green and falsified against a broken control |
 | P1.3 | Patch emitter: one undo group, properties resolved once, stable ids | **DONE offline** — `jsx/patch.jsx` + `src/patch.js`. Stops on failure, returns an inverse for rollback, refuses stale/keyframed/ambiguous/user-owned. 17 tests run the real JSX in a VM; falsified twice. **VERIFIED IN AE** (run 2, 31/31). |
-| P1.4 | Drift guard, using S4: revision gate → structural snapshot → digest compare | **DONE offline** — `src/drift.js`. Three tiers; a moved revision is classified before it is called drift; five changes block, everything else is reported and corrected. 23 tests, falsified against a blind control. **In-AE pass owed** (`jsx/p1b-check.jsx`). |
-| P1.5 | Coalesced write loop — one undo group per gesture, not per frame (S5) | **DONE offline** — `src/loop.js`. A gesture is a hold, not a debounce; one patch in flight; stale re-read, failure rolled back, drift held for the user. 23 tests driving the real reader and writer end to end. **In-AE pass owed.** |
+| P1.4 | Drift guard, using S4: revision gate → structural snapshot → digest compare | **DONE** — `src/drift.js`. Three tiers; a moved revision is classified before it is called drift; five changes block, everything else is reported and corrected. 23 tests, falsified against a blind control. **VERIFIED IN AE** (run 2, 25/25); the gate measured 0.678 µs. |
+| P1.5 | Coalesced write loop — one undo group per gesture, not per frame (S5) | **DONE** — `src/loop.js`. A gesture is a hold, not a debounce; one patch in flight; stale re-read, failure rolled back, drift held for the user. 23 tests driving the real reader and writer end to end. **VERIFIED IN AE**: a twelve-op patch is one undo entry. |
 
 **P1 is done when** a hand-written mutation of the graph object — add a layer,
 retarget a parent, change an effect parameter, delete a layer — reaches AE
 correctly, atomically, and inside the S2 latency budget, with drift detected.
+
+**P1 is done.** Add, reparent, change and delete each reach the comp in one patch
+and one undo entry, proved end to end offline against the real reader and writer,
+and every assumption underneath verified inside After Effects (34/34 for the
+reader and writer, 25/25 for the guard and the loop). Effect parameters are the
+one item deferred: `setEffect` is refused with a sentence rather than
+half-implemented, and belongs to M2's node set.
+
+**Next: P2's M1 — the canvas transplant into the CEP panel.**
 
 ---
 

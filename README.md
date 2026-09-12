@@ -4,9 +4,9 @@ A node graph that replaces After Effects' layered timeline as the place you
 compose. The graph is the source of truth; AE holds a derived comp and stays the
 renderer, so every effect, plug-in and the render queue keep working.
 
-**Working name. P0 complete, P1 in progress.** The first phase was falsification:
+**Working name. P0 and P1 complete.** The first phase was falsification:
 cheap spikes against the things most likely to kill it. All seven gates passed,
-so the reconciler is now being built - offline first, then against real After
+so the reconciler was built - offline first, then verified against real After
 Effects.
 
 ## Read in this order
@@ -84,13 +84,23 @@ stale patch is re-read and re-diffed rather than re-sent; a failed one is rolled
 back by its inverse; blocking drift holds the loop until the user accepts or
 discards. A pass with nothing to write opens no undo group at all.
 
-**Next: run `jsx/p1b-check.jsx` inside After Effects** — does the revision really
-move for every edit we assume, are two reads of an untouched comp byte-identical,
-and is a twelve-op patch really one undo entry.
+**Their in-AE pass passed too — 25/25 on AE 26.5x89, so P1 is done.**
+`app.project.revision` moves on every edit the guard must notice, **and on an
+edit in another comp** — the measurement the digest tier exists for. Two reads of
+an untouched comp are byte-identical, so the digest has something stable to sit
+on. A **twelve-op patch is one undo entry**: one Ctrl+Z put back every value and
+every name. The gate measured **0.678 µs**, 3.4× cheaper than S4 — an idle
+reconciler polling at 10 Hz spends under 7 µs a second noticing nothing happened.
+
+Two things turned out better than assumed: selecting a layer does not move the
+revision, and neither does moving the time indicator — the two likeliest sources
+of false wake-ups.
 
 ```bash
 # the P1.4/P1.5 in-AE pass: File > Scripts > Run Script File... > jsx/p1b-check.jsx
 ```
+
+**Next: P2's M1 — the node canvas, transplanted into the CEP panel.**
 
 ## Spike instruments
 

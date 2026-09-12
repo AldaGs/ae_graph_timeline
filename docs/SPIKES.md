@@ -1334,3 +1334,93 @@ every check here carries a control.
 | `layerByID` | 3.3 µs | 3.2 µs | 3.7 µs |
 
 Tight enough across runs to plan against. **P1.1 and P1.3 are closed.**
+---
+
+## P1.4 / P1.5 in-AE pass — run 1 (2026-09-12, AE 26.5x89): 21/23
+
+`jsx/p1b-check.jsx`. Control red, so the run is valid. **Every question about
+After Effects was answered green**; both failures were the instrument.
+
+- *"two reads of an untouched comp are byte-identical"* compared the raw read
+  text — which ends with `elapsedMs`, the read's own stopwatch. Two reads take
+  different numbers of microseconds, so the check could not pass by construction.
+- *"the read found our three layers"* counted four. The undo check ran straight
+  after the delete check, so the undo put the deleted layer back. Undo has no
+  idea which check it is serving; the check that uses it has to own the state it
+  leaves behind.
+
+Fifth and sixth times the instrument, not After Effects, was the finding.
+
+---
+
+## P1.4 / P1.5 in-AE pass — run 2 (2026-09-12, AE 26.5x89): **PASS, 25/25**
+
+Harness control valid. **P1.4 and P1.5 are closed.**
+
+### The drift gate is real, and it is quieter than assumed
+
+`app.project.revision` moves on every edit the guard has to notice:
+
+| the edit | revision |
+|---|---|
+| a property write | moved |
+| a rename | moved |
+| a comment write — our identity anchor (S3) | moved |
+| an expression write | moved |
+| a parent change | moved |
+| creating a layer | moved |
+| deleting a layer | moved |
+| an undo | moved |
+| **an edit in ANOTHER comp** | **moved** |
+| nothing at all | did not move |
+
+The last two lines are the ones that shape the design. An edit elsewhere in the
+project moves the revision while the comp under reconciliation has not changed —
+which is why a moved revision is **not yet drift**, and why the digest tier
+exists to classify it as spurious instead of stopping the reconciler.
+
+**Observations, no pass condition fixed in advance:** selecting a layer does
+**not** move the revision, and neither does moving the time indicator. Better
+than assumed — those were the two most frequent candidates for spurious
+wake-ups, and neither costs a read. Recorded as observations rather than checks
+because either answer was survivable.
+
+### The read is stable, which is what the digest rests on
+
+Two reads of an untouched comp are **byte-identical** across everything the
+digest covers. Floats round-trip; key order does not vary. A read that wobbled
+would make every idle pass digest differently and the guard would report drift
+forever.
+
+### One patch is one undo entry — at gesture size
+
+Run 3 of the P1 pass proved it for ten ops. This proves it for **twelve, across
+three layers and three property kinds**, including array-valued `scale`:
+
+| | |
+|---|---|
+| ops applied | 12 of 12 |
+| property writes | 9 |
+| **one Ctrl+Z restores** | every value **and** every name |
+
+That is what P1.5 spends the 99-entry stack on: a gesture of any size costs one
+entry.
+
+### The prices
+
+| | measured | what P0 said |
+|---|---|---|
+| the revision gate | **0.678 µs** | 2.3 µs (S4) |
+| a full structural read (4 layers) | **1.34 ms** | < 400 ms, one patch budget (S1) |
+| a second read, warm | 0.49 ms | — |
+| a 12-op patch, in-host | 1.83 ms | — |
+| the scan inside it | 0.04 ms | — |
+
+The gate is **3.4× cheaper** than S4 measured it. An idle reconciler polling at
+10 Hz spends under 7 µs a second on drift detection.
+
+### The user's layer, after all of it
+
+Still there, opacity untouched at 100, comment unrewritten. Twenty-five checks
+and two comps' worth of editing later, the one layer the graph does not own was
+never written to.
