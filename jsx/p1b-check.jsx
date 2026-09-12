@@ -8,7 +8,7 @@
 //      cheap tier is worth nothing if a property edit leaves the revision alone
 //      (drift we would never notice), and the expensive tier exists precisely
 //      because the revision is PROJECT-wide - an edit in another comp moves it.
-//   2. is one patch really one undo entry, at fifteen ops rather than two? S5
+//   2. is one patch really one undo entry, at twelve ops rather than two? S5
 //      measured the stack at 99 entries; P1.5 spends one per gesture on that
 //      basis, so the claim is tested at the size a gesture actually is.
 //
@@ -89,6 +89,18 @@ function ntlbBuild() {
     return { comp: comp, other: other };
 }
 
+// Everything in the read except its own stopwatch. NTL_ReadComp stamps
+// elapsedMs last, so this is a split rather than a parse - it compares the text
+// the panel actually digests, not a re-serialisation of it.
+function ntlbStructural(json) {
+    return String(json).split('"elapsedMs":')[0];
+}
+
+function ntlbElapsed(json) {
+    var parts = String(json).split('"elapsedMs":');
+    return parts.length < 2 ? null : parts[1].split('}')[0];
+}
+
 function ntlbByTag(comp, tag) {
     return ntlrScanTags(comp).byTag[tag];
 }
@@ -159,16 +171,30 @@ function ntlbRun() {
         app.endUndoGroup();
     }));
 
-    ntlbCheck('deleting a layer moves the revision', 'moved', ntlbMoves(function () {
-        app.beginUndoGroup('NTL P1b - delete');
-        ntlbByTag(comp, 'tmp').remove();
-        app.endUndoGroup();
-    }));
-
+    // The undo is taken HERE, against the creation immediately above it. Run 1
+    // asked it one check later, straight after a delete - so the undo put the
+    // deleted layer back, and every count below was one too high. The instrument,
+    // not After Effects: undo has no idea which of our checks it is serving, so
+    // the check that uses it has to own the state it leaves behind.
     ntlbCheck('an undo moves the revision', 'moved', ntlbMoves(function () {
         // If undo did not move it, the user pressing Ctrl+Z would be invisible to
         // the guard - and P1 already proved a patch can follow an undo.
         app.executeCommand(16);
+    }));
+    ntlbCheck('the undo took the created layer away again', 'true',
+              ntlbByTag(comp, 'tmp') === undefined ? 'true' : 'false',
+              'the checks below count layers, so this one has to leave none behind');
+
+    // A fresh one to delete, created outside the measurement.
+    app.beginUndoGroup('NTL P1b - a layer to delete');
+    var doomed = comp.layers.addSolid([0.3, 0.3, 0.3], 'Doomed', 100, 100, 1);
+    doomed.comment = ntlrTagFor('tmp');
+    app.endUndoGroup();
+
+    ntlbCheck('deleting a layer moves the revision', 'moved', ntlbMoves(function () {
+        app.beginUndoGroup('NTL P1b - delete');
+        ntlbByTag(comp, 'tmp').remove();
+        app.endUndoGroup();
     }));
 
     // The one that justifies the second tier. The revision is PROJECT-wide, so
@@ -200,15 +226,22 @@ function ntlbRun() {
 
     // ---- 2. what a read costs, and whether it is stable ------------------
 
+    // Before any counting: the comp must be back to the four layers it was built
+    // with, or a count below would be measuring the checks above instead of AE.
+    ntlbCheck('the comp is back to its four layers', 4, comp.numLayers);
+
     var json1 = NTL_ReadComp(NTLB_COMP, false);
     var json2 = NTL_ReadComp(NTLB_COMP, false);
-    // The digest is computed panel-side over exactly this text. If two reads of
-    // an untouched comp differ - a float that does not round-trip, a key order
-    // that varies - then every idle pass would digest differently and the guard
-    // would report drift forever.
+    // The digest is computed panel-side over exactly this text, MINUS the read's
+    // own stopwatch: elapsedMs is the instrument timing itself and is no part of
+    // the state src/drift.js digests. Run 1 compared the raw strings, so the
+    // check could only ever fail - two reads take different numbers of
+    // microseconds. Fourth instrument bug in this project, same family as the
+    // other three.
     ntlbCheck('two reads of an untouched comp are byte-identical', 'true',
-              json1 === json2 ? 'true' : 'false',
+              ntlbStructural(json1) === ntlbStructural(json2) ? 'true' : 'false',
               'the digest is only as stable as the read under it');
+    results.readTimings = [ntlbElapsed(json1), ntlbElapsed(json2)];
 
     var state = eval('(' + json1 + ')');
     ntlbCheck('the read reports no errors', 0, state.readErrors, state.firstError || '');
