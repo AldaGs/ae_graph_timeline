@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ExtensionList>
+  <Extension Id="com.nodetimeline.panel">
+    <HostList>
+      <!-- 8091: clear of the spike panel's 8090 and ExtendBlueNode's 8088, so
+           all three can be open with their own DevTools. -->
+      <Host Name="AEFT" Port="8091" />
+    </HostList>
+  </Extension>
+</ExtensionList>

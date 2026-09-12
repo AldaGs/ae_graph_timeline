@@ -416,6 +416,47 @@ half-implemented, and belongs to M2's node set.
 
 **Next: P2's M1 — the canvas transplant into the CEP panel.**
 
+### M1 — the canvas (in progress)
+
+**The canvas is transplanted, not the codebase.** ExtendBlueNode compiles a DAG
+*into* ExtendScript; here the graph *is* the comp. Its exec/data port semantics,
+its node library and its Monaco mirror are the wrong abstraction for this — as
+the MVP's exclusion of its 1,566 auto-generated DOM nodes already said. What
+transplants is React Flow itself, the visual language, and the CEP plumbing.
+
+**A build step arrives, deliberately.** `cep-spike/` is static HTML on purpose —
+a spike with a build step measures the build step too. A node canvas is not a
+spike, so `panel/` is Vite + React + React Flow. The reconciler is imported from
+`src/`, never copied: two copies of `graph.js` would be two definitions of what a
+node is.
+
+**The direction of authority is fixed.** `src/view.js` is the only file that
+knows both models, and it is pure — no React, no reactflow import, no DOM, so it
+is tested offline with everything else. React Flow renders the graph and owns
+nothing; a canvas gesture is a mutation of the graph, or it is nothing.
+
+**Node positions live in the model** (`node.ui`), not in the panel. The diff never
+reads them, so moving a node cannot emit a patch — but M6 has to persist them,
+and a graph that reopened with every node stacked at the origin would have lost
+the arrangement the user spent longest on.
+
+**Two failures worth recording**, both found by driving the real panel rather
+than by reading it:
+
+- `overflow: hidden` on a node card **clips its ports** — a handle sits astride
+  the card's edge, and the half that gets clipped is the half the pointer lands
+  on, so every attempt to draw a wire drags the node instead.
+- React Flow **discards an edge whose handle does not exist, in silence**. The
+  wire landed in the model and never appeared, because an edge's source is stored
+  the way After Effects addresses it (`.transform.position`, what goes into the
+  expression body) and a port is named after the property alone. `view.js` now
+  translates; a test asserts every wire lands on a port that is actually there,
+  and it fails against the old code.
+
+**Still owed for M1:** the panel confirmed running docked inside After Effects,
+and a way to edit a node's values — today it renders them, and the toolbar covers
+adding, renaming and deleting.
+
 ---
 
 ## P2 — MVP
@@ -428,7 +469,7 @@ improvement on the layer stack; it does not yet replace the curve editor.
 
 | | Step | Owes |
 |---|---|---|
-| M1 | Canvas transplant from ExtendBlueNode, into the CEP panel | the node UI running docked in AE against the P1 graph model |
+| M1 | Canvas transplant from ExtendBlueNode, into the CEP panel | **IN PROGRESS** — `panel/`. React Flow over the P1 graph model, `src/view.js` translating between them (pure, 23 tests). Nodes, ports, expression edges, parenting, and a live handshake to the host. Owed: the panel confirmed running docked in AE, and node inspection/editing beyond name and kind. |
 | M2 | Node set: Source, Transform, Effect, Composite, **Relationship** (expressions as edges, per S6) | enough to build a simple shot |
 | M3 | Reconciler wired to the canvas, debounced | edit a node, AE updates |
 | M4 | Durable identity per S3: comment anchor + cached native id | close and reopen the project, duplicate a layer, precompose one — the graph still owns its layers and knows which copy is which |

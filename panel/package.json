@@ -1,0 +1,23 @@
+{
+  "name": "node-timeline-panel",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "The Node Timeline CEP panel: a node canvas over the P1 graph model, docked in After Effects.",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build && node scripts/build-host.mjs",
+    "host": "node scripts/build-host.mjs",
+    "install:cep": "node install.mjs",
+    "ae": "npm run build && node install.mjs"
+  },
+  "dependencies": {
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "reactflow": "^11.11.4"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^6.0.1",
+    "vite": "^8.0.12"
+  }
+}

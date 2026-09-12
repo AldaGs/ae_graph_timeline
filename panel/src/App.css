@@ -1,0 +1,183 @@
+/* The panel sits inside After Effects, so it is dark by default and stays out
+   of the way: AE's own chrome is the surround, and a panel with its own accent
+   colour would fight it. Type sizes are AE's, not the web's. */
+
+:root {
+  color-scheme: dark;
+  --ntl-bg: #1c1c1c;
+  --ntl-panel: #232323;
+  --ntl-line: #3a3a3a;
+  --ntl-text: #d6d6d6;
+  --ntl-dim: #8a8a8a;
+  --ntl-edge: #5b9dd9;
+  --ntl-parent: #c8a45c;
+  --ntl-warn: #d79a3c;
+  --ntl-live: #6fbf73;
+}
+
+* { box-sizing: border-box; }
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  background: var(--ntl-bg);
+  color: var(--ntl-text);
+  font: 11px/1.45 "Adobe Clean", -apple-system, "Segoe UI", system-ui, sans-serif;
+  overflow: hidden;
+}
+
+.ntl-app { display: flex; flex-direction: column; height: 100%; }
+
+/* ------------------------------------------------------------------ the bar */
+
+.ntl-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 10px;
+  background: var(--ntl-panel);
+  border-bottom: 1px solid var(--ntl-line);
+  flex: 0 0 auto;
+}
+
+.ntl-title { font-weight: 600; letter-spacing: 0.2px; }
+.ntl-actions { display: flex; gap: 6px; }
+.ntl-count { margin-left: auto; color: var(--ntl-dim); }
+
+button {
+  font: inherit;
+  color: var(--ntl-text);
+  background: #2e2e2e;
+  border: 1px solid var(--ntl-line);
+  border-radius: 3px;
+  padding: 3px 9px;
+  cursor: pointer;
+}
+button:hover:not(:disabled) { background: #383838; }
+button:disabled { opacity: 0.4; cursor: default; }
+
+/* The link state is the one thing on screen that is about After Effects rather
+   than about the graph, so it says what it knows and nothing more. */
+.ntl-link { display: flex; align-items: center; gap: 6px; }
+.ntl-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ntl-dim); }
+.ntl-link.is-live .ntl-dot { background: var(--ntl-live); }
+.ntl-link.is-error .ntl-dot { background: #cc5b5b; }
+.ntl-link.is-browser .ntl-dot { background: var(--ntl-warn); }
+
+/* --------------------------------------------------------------- the canvas */
+
+.ntl-canvas { flex: 1 1 auto; min-height: 0; }
+.react-flow { background: var(--ntl-bg); }
+.react-flow__controls-button {
+  background: #2b2b2b;
+  border-bottom: 1px solid var(--ntl-line);
+  fill: var(--ntl-text);
+}
+
+/* ---------------------------------------------------------------- the nodes */
+
+.ntl-node {
+  min-width: 176px;
+  background: var(--ntl-panel);
+  border: 1px solid var(--ntl-line);
+  border-radius: 5px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.45);
+  /* NOT overflow:hidden. A port sits astride the card's edge, so clipping the
+     card clips half of every handle - and the half it takes is the half the
+     pointer lands on, which turns every attempt to draw a wire into a drag of
+     the node. The corners are rounded on the header and footer instead. */
+  overflow: visible;
+}
+.ntl-node.is-selected { border-color: #6f9fd8; box-shadow: 0 0 0 1px #6f9fd8; }
+
+.ntl-node-head {
+  border-radius: 4px 4px 0 0;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 5px 9px;
+  background: #333;
+  border-bottom: 1px solid var(--ntl-line);
+}
+/* The kind decides what the layer IS, so it is carried by colour as well as by
+   the word - a solid and a null behave differently and should not look alike. */
+.ntl-node-head.kind-solid { background: #3b4553; }
+.ntl-node-head.kind-null { background: #4a4438; }
+.ntl-node-head.kind-text { background: #423a4d; }
+.ntl-node-head.kind-shape { background: #38473d; }
+
+.ntl-node-name {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 150px;
+}
+.ntl-node-kind { margin-left: auto; color: var(--ntl-dim); font-size: 10px; }
+
+.ntl-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 9px;
+  min-height: 20px;
+}
+.ntl-row-label { color: var(--ntl-dim); }
+.ntl-row-value { margin-left: auto; font-variant-numeric: tabular-nums; }
+/* A driven input shows the edge, not a value: the expression IS the value
+   there, and an editable number over it would be a lie. */
+.ntl-row.is-driven .ntl-row-value { color: var(--ntl-edge); font-style: italic; }
+.ntl-row-parent { border-bottom: 1px dashed var(--ntl-line); }
+.ntl-row-parent .ntl-row-label { color: var(--ntl-parent); }
+.ntl-row-empty { color: var(--ntl-dim); font-style: italic; }
+
+.ntl-node-foot {
+  border-radius: 0 0 4px 4px;
+  padding: 2px 9px 4px;
+  color: #5d5d5d;
+  font-size: 9px;
+  border-top: 1px solid #2c2c2c;
+}
+
+.ntl-handle {
+  width: 9px;
+  height: 9px;
+  background: #4a4a4a;
+  border: 1px solid #666;
+  /* Above the card, so the pointer reaches the port rather than the node body
+     underneath it. */
+  z-index: 3;
+}
+.ntl-handle:hover { background: var(--ntl-edge); }
+.ntl-handle-parent { background: #5a4e36; border-color: var(--ntl-parent); }
+
+/* The minimap defaults to a white page; inside After Effects that is a torch in
+   a dark room. */
+.react-flow__minimap { background: #1a1a1a; }
+
+/* ----------------------------------------------------------------- the foot */
+
+.ntl-foot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 10px;
+  background: var(--ntl-panel);
+  border-top: 1px solid var(--ntl-line);
+  color: var(--ntl-dim);
+  flex: 0 0 auto;
+  min-height: 22px;
+}
+.ntl-foot-detail { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ntl-message {
+  margin-left: auto;
+  background: transparent;
+  border: 1px solid var(--ntl-warn);
+  color: var(--ntl-warn);
+  border-radius: 3px;
+  max-width: 60%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

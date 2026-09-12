@@ -100,7 +100,25 @@ of false wake-ups.
 # the P1.4/P1.5 in-AE pass: File > Scripts > Run Script File... > jsx/p1b-check.jsx
 ```
 
-**Next: P2's M1 — the node canvas, transplanted into the CEP panel.**
+## The panel
+
+**M1 is underway** — [`panel/`](panel/) is a React Flow canvas over the P1 graph
+model. A node is a layer; a blue wire is an expression edge; an amber dashed wire
+is parenting. It renders the graph and mutates it, and **does not write to After
+Effects yet** — that is M3, and the panel says so rather than looking connected
+while doing nothing.
+
+```bash
+cd panel && npm install
+npm run ae      # build, then install into the CEP extensions folder
+```
+
+Then restart AE → Window ▸ Extensions ▸ **Node Timeline**. `npm run dev` runs the
+same canvas in a browser, without After Effects, which is faster for canvas work.
+
+The graph is the source of truth: [`src/view.js`](src/view.js) is the only file
+that knows both the model and React Flow, and it is pure, so it is tested with
+everything else.
 
 ## Spike instruments
 

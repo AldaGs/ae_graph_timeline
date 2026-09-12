@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Node Timeline</title>
+    <!-- Loaded before the bundle: CEP injects window.__adobe_cep__, and this
+         shim is what turns it into the CSInterface the bridge expects. It sits
+         in public/ so the same relative path works under `vite dev` and inside
+         the built panel, which is loaded from the filesystem. -->
+    <script src="./CSInterface.js"></script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>

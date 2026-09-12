@@ -65,8 +65,25 @@ export function addNode(graph, node) {
     order: node.order ?? Object.keys(graph.nodes).length + 1,
     props: { ...(node.props || {}) },
     effects: (node.effects || []).map((e) => ({ ...e, params: { ...(e.params || {}) } })),
+    // Where the node sits on the canvas. It lives in the MODEL, not in the
+    // panel, because M6 has to persist it: a graph that reopened with every node
+    // stacked at the origin would have lost the thing the user spent the most
+    // time arranging. Nothing in After Effects has an opinion about it, so the
+    // diff never reads it and moving a node can never emit a patch.
+    ui: { x: node.ui?.x ?? 0, y: node.ui?.y ?? 0 },
   };
   return graph.nodes[node.id];
+}
+
+// Moving a node is a change to the drawing, never to the comp. Kept as its own
+// function so the panel cannot reach into `ui` by accident on a path that also
+// touches props - and so the one caller that must NOT mark the loop dirty is
+// visible in one place.
+export function moveNode(graph, nodeId, x, y) {
+  const node = graph.nodes[nodeId];
+  if (!node) return null;
+  node.ui = { x, y };
+  return node;
 }
 
 // An edge writes an expression onto `to.prop` that reads `from.prop`.
