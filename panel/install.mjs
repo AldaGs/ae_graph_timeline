@@ -65,9 +65,7 @@ checkDebugMode();
 // a missing PlayerDebugMode, and just as hard to read from inside AE.
 if (!existsSync(resolve(__dirname, 'dist/index.html')) ||
     !existsSync(resolve(__dirname, 'dist/host.jsx'))) {
-  console.warn('
-  dist/ is missing or incomplete. Run `npm run build` first.
-');
+  console.warn('\n  dist/ is missing or incomplete. Run `npm run build` first.\n');
 }
 
 if (lstatSync(target, { throwIfNoEntry: false })) {
