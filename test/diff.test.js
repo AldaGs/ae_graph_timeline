@@ -1,0 +1,215 @@
+// Offline tests for the reconciler's read half. No After Effects involved.
+//
+// Every case here encodes a rule that a P0 spike paid for. Where that is so,
+// the spike is named - so if a rule is ever changed, the evidence that produced
+// it is one grep away.
+//
+//   node --test test/
+
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+
+import { createGraph, addNode, addEdge, tagFor, expressionFor, expressionBody } from '../src/graph.js';
+import { diff, valueEquals } from '../src/diff.js';
+
+// ---- helpers ---------------------------------------------------------------
+
+let nativeId = 1000;
+const layer = (over = {}) => ({
+  nativeId: nativeId++,
+  index: 1,
+  name: 'layer',
+  comment: '',
+  parentTag: null,
+  props: { opacity: 100, position: [960, 540] },
+  expressions: {},
+  ...over,
+});
+
+const managed = (nodeId, over = {}) => layer({ comment: tagFor(nodeId), name: nodeId, ...over });
+
+const comp = (layers) => ({ compName: 'test', layers });
+
+const opsOf = (result, kind) => result.ops.filter((o) => o.op === kind);
+
+// ---- value comparison ------------------------------------------------------
+
+test('float comparison tolerates AE round-trip noise', () => {
+  assert.ok(valueEquals(100, 100.0000000001));
+  assert.ok(valueEquals([960, 540], [960.0000000001, 540]));
+  assert.ok(!valueEquals(100, 100.1));
+  assert.ok(!valueEquals([960, 540], [960, 541]));
+  assert.ok(!valueEquals([960, 540], [960, 540, 0]));
+});
+
+// ---- creates and deletes ---------------------------------------------------
+
+test('a node with no layer is created', () => {
+  const g = createGraph();
+  addNode(g, { id: 'n1', name: 'BG', props: { opacity: 100 } });
+  const r = diff(g, comp([]));
+  assert.equal(opsOf(r, 'createLayer').length, 1);
+  assert.equal(opsOf(r, 'createLayer')[0].node, 'n1');
+});
+
+test('a managed layer with no node is deleted', () => {
+  const g = createGraph();
+  const r = diff(g, comp([managed('gone')]));
+  assert.equal(opsOf(r, 'deleteLayer').length, 1);
+  assert.equal(opsOf(r, 'deleteLayer')[0].node, 'gone');
+});
+
+test('UNTAGGED layers are never touched — they belong to the user', () => {
+  // Wall 2 / S3: tagged = ours, untagged = theirs. The single most important
+  // rule in the reconciler; violating it destroys the user's own work.
+  const g = createGraph();
+  const r = diff(g, comp([
+    layer({ name: 'user drew this', comment: '' }),
+    layer({ name: 'and this', comment: 'just a note' }),
+  ]));
+  assert.equal(r.ops.length, 0);
+  assert.equal(r.stats.untaggedLayers, 2);
+});
+
+// ---- properties ------------------------------------------------------------
+
+test('only changed properties are written', () => {
+  const g = createGraph();
+  addNode(g, { id: 'n1', name: 'n1', props: { opacity: 50, position: [960, 540] } });
+  const r = diff(g, comp([managed('n1', { props: { opacity: 100, position: [960, 540] } })]));
+  const sets = opsOf(r, 'setProp');
+  assert.equal(sets.length, 1);
+  assert.equal(sets[0].prop, 'opacity');
+  assert.equal(sets[0].to, 50);
+});
+
+test('a clean graph produces an empty patch', () => {
+  // S4 measured the clean pass at 6.3 ms for 200 properties; it runs constantly,
+  // so it must emit nothing at all when nothing differs.
+  const g = createGraph();
+  addNode(g, { id: 'n1', name: 'n1', props: { opacity: 100, position: [960, 540] } });
+  const r = diff(g, comp([managed('n1')]));
+  assert.equal(r.ops.length, 0);
+  assert.equal(r.warnings.length, 0);
+});
+
+test('a rename is emitted, and before any expression is written', () => {
+  // Expressions address layers BY NAME, so names must be final first.
+  const g = createGraph();
+  addNode(g, { id: 'a', name: 'NEW NAME', props: {} });
+  addNode(g, { id: 'b', name: 'b', props: {} });
+  addEdge(g, { id: 'e1', from: 'a', to: 'b', toProp: 'position' });
+  const r = diff(g, comp([managed('a', { name: 'OLD NAME' }), managed('b')]));
+  const names = r.ops.findIndex((o) => o.op === 'setName');
+  const exprs = r.ops.findIndex((o) => o.op === 'setExpression');
+  assert.ok(names >= 0 && exprs >= 0);
+  assert.ok(names < exprs, 'setName must be ordered before setExpression');
+});
+
+// ---- expression edges ------------------------------------------------------
+
+test('an edge writes a tagged expression on the target property', () => {
+  const g = createGraph();
+  addNode(g, { id: 'a', name: 'Source', props: {} });
+  addNode(g, { id: 'b', name: 'Target', props: {} });
+  addEdge(g, { id: 'e1', from: 'a', to: 'b', fromProp: '.transform.position', toProp: 'position' });
+  const r = diff(g, comp([managed('a', { name: 'Source' }), managed('b', { name: 'Target' })]));
+  const set = opsOf(r, 'setExpression');
+  assert.equal(set.length, 1);
+  assert.match(set[0].text, /^\/\/ ntl:edge:e1\n/);
+  assert.match(set[0].text, /thisComp\.layer\("Source"\)\.transform\.position/);
+});
+
+test('an expression edge suppresses writing that property as a value', () => {
+  // The expression IS the value. Writing it too would be pointless churn and
+  // would be recomputed away on the next frame.
+  const g = createGraph();
+  addNode(g, { id: 'a', name: 'A', props: {} });
+  addNode(g, { id: 'b', name: 'B', props: { position: [0, 0] } });
+  addEdge(g, { id: 'e1', from: 'a', to: 'b', toProp: 'position' });
+  const r = diff(g, comp([managed('a', { name: 'A' }), managed('b', { name: 'B' })]));
+  assert.equal(opsOf(r, 'setProp').filter((o) => o.prop === 'position').length, 0);
+});
+
+test('a hand-written expression is never overwritten', () => {
+  // Ownership is detectable because the graph tags what it authors. Anything
+  // untagged is the user's, exactly as with layers.
+  const g = createGraph();
+  addNode(g, { id: 'a', name: 'A', props: {} });
+  addNode(g, { id: 'b', name: 'B', props: {} });
+  addEdge(g, { id: 'e1', from: 'a', to: 'b', toProp: 'position' });
+  const r = diff(g, comp([
+    managed('a', { name: 'A' }),
+    managed('b', { name: 'B', expressions: { position: 'wiggle(2,30)' } }),
+  ]));
+  assert.equal(opsOf(r, 'setExpression').length, 0);
+  assert.equal(r.warnings.filter((w) => w.kind === 'userExpression').length, 1);
+});
+
+test('removing an edge clears the expression it wrote — and only that one', () => {
+  const g = createGraph();
+  addNode(g, { id: 'b', name: 'B', props: {} });
+  const r = diff(g, comp([managed('b', {
+    name: 'B',
+    expressions: {
+      position: expressionFor('e1', expressionBody('A', '.transform.position')),
+      opacity: 'wiggle(2,30)', // the user's — must survive
+    },
+  })]));
+  const cleared = opsOf(r, 'clearExpression');
+  assert.equal(cleared.length, 1);
+  assert.equal(cleared[0].prop, 'position');
+});
+
+test('two edges onto one property is reported, not silently resolved', () => {
+  const g = createGraph();
+  addNode(g, { id: 'a', name: 'A', props: {} });
+  addNode(g, { id: 'a2', name: 'A2', props: {} });
+  addNode(g, { id: 'b', name: 'B', props: {} });
+  addEdge(g, { id: 'e1', from: 'a', to: 'b', toProp: 'position' });
+  addEdge(g, { id: 'e2', from: 'a2', to: 'b', toProp: 'position' });
+  const r = diff(g, comp([managed('a', { name: 'A' }), managed('a2', { name: 'A2' }), managed('b', { name: 'B' })]));
+  assert.equal(r.warnings.filter((w) => w.kind === 'edgeConflict').length, 1);
+});
+
+// ---- duplicates ------------------------------------------------------------
+
+test('a duplicated layer is detected, and the original is kept', () => {
+  // S3: the copy carries the same comment tag but gets its own native id, so
+  // the pair of carriers distinguishes original from copy. Neither alone can.
+  const g = createGraph();
+  const n = addNode(g, { id: 'n1', name: 'n1', props: { opacity: 100 } });
+  n.nativeId = 7;
+  const r = diff(g, comp([
+    managed('n1', { nativeId: 7, props: { opacity: 100, position: [960, 540] } }),
+    managed('n1', { nativeId: 8, props: { opacity: 100, position: [960, 540] } }),
+  ]));
+  const dup = r.warnings.filter((w) => w.kind === 'duplicate');
+  assert.equal(dup.length, 1);
+  assert.equal(dup[0].keptNativeId, 7);
+  assert.equal(opsOf(r, 'deleteLayer').length, 0, 'a user copy must not be deleted');
+});
+
+// ---- ordering --------------------------------------------------------------
+
+test('deletes come last and clears come first', () => {
+  const g = createGraph();
+  addNode(g, { id: 'keep', name: 'keep', props: {} });
+  const r = diff(g, comp([
+    managed('keep', { name: 'keep', expressions: { position: expressionFor('dead', 'x') } }),
+    managed('remove', { name: 'remove' }),
+  ]));
+  assert.equal(r.ops[0].op, 'clearExpression');
+  assert.equal(r.ops[r.ops.length - 1].op, 'deleteLayer');
+});
+
+test('creates precede the parenting that depends on them', () => {
+  const g = createGraph();
+  addNode(g, { id: 'parent', name: 'parent', props: {} });
+  addNode(g, { id: 'child', name: 'child', parent: 'parent', props: {} });
+  const r = diff(g, comp([managed('child', { name: 'child' })]));
+  const create = r.ops.findIndex((o) => o.op === 'createLayer');
+  const parent = r.ops.findIndex((o) => o.op === 'setParent');
+  assert.ok(create >= 0 && parent >= 0);
+  assert.ok(create < parent);
+});

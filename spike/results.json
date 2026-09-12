@@ -1,0 +1,140 @@
+{
+  "when": "2026-09-10T20:00:15.512Z",
+  "layers": 200,
+  "ping": {
+    "min": 267.9113,
+    "median": 282.5884,
+    "p90": 285.5643,
+    "max": 421.8215
+  },
+  "setup": {
+    "rttMs": 3794.6217,
+    "layers": 200,
+    "name": "NTL Spike",
+    "version": "26.3x87"
+  },
+  "noop": {
+    "min": 89.6194,
+    "median": 93.2569,
+    "p90": 138.5192,
+    "max": 164.3868
+  },
+  "writes": [
+    {
+      "n": 1,
+      "undo": true,
+      "rttMs": 144.9537,
+      "writeUs": 1624,
+      "usPerWrite": 1624
+    },
+    {
+      "n": 1,
+      "undo": false,
+      "rttMs": 104.5097,
+      "writeUs": 875,
+      "usPerWrite": 875
+    },
+    {
+      "n": 10,
+      "undo": true,
+      "rttMs": 116.2842,
+      "writeUs": 1877,
+      "usPerWrite": 187.7
+    },
+    {
+      "n": 10,
+      "undo": false,
+      "rttMs": 121.5448,
+      "writeUs": 2062,
+      "usPerWrite": 206.2
+    },
+    {
+      "n": 50,
+      "undo": true,
+      "rttMs": 125.2524,
+      "writeUs": 6355,
+      "usPerWrite": 127.1
+    },
+    {
+      "n": 50,
+      "undo": false,
+      "rttMs": 84.0418,
+      "writeUs": 7799,
+      "usPerWrite": 155.98
+    },
+    {
+      "n": 200,
+      "undo": true,
+      "rttMs": 112.4782,
+      "writeUs": 22942,
+      "usPerWrite": 114.71
+    },
+    {
+      "n": 200,
+      "undo": false,
+      "rttMs": 135.0073,
+      "writeUs": 35381,
+      "usPerWrite": 176.905
+    }
+  ],
+  "diff": [
+    {
+      "n": 50,
+      "changed": false,
+      "rttMs": 95.8796,
+      "writes": 0,
+      "totalUs": 2292,
+      "usPerProp": 45.84
+    },
+    {
+      "n": 50,
+      "changed": true,
+      "rttMs": 99.6036,
+      "writes": 50,
+      "totalUs": 11591,
+      "usPerProp": 231.82
+    },
+    {
+      "n": 200,
+      "changed": false,
+      "rttMs": 100.4012,
+      "writes": 0,
+      "totalUs": 6834,
+      "usPerProp": 34.17
+    },
+    {
+      "n": 200,
+      "changed": true,
+      "rttMs": 107.4448,
+      "writes": 200,
+      "totalUs": 42770,
+      "usPerProp": 213.85
+    }
+  ],
+  "structural": [
+    {
+      "n": 1,
+      "rttMs": 100.5107,
+      "addUs": 16596,
+      "usPerAdd": 16596,
+      "removeUs": 13239,
+      "usPerRemove": 13239
+    },
+    {
+      "n": 10,
+      "rttMs": 288.0913,
+      "addUs": 143753,
+      "usPerAdd": 14375.3,
+      "removeUs": 33417,
+      "usPerRemove": 3341.7
+    },
+    {
+      "n": 50,
+      "rttMs": 960.2672,
+      "addUs": 726854,
+      "usPerAdd": 14537.08,
+      "removeUs": 132819,
+      "usPerRemove": 2656.38
+    }
+  ]
+}

@@ -1,0 +1,1133 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Node Timeline — CEP spike</title>
+<style>
+  :root {
+    --bg: #232323; --panel: #2b2b2b; --line: #3c3c3c;
+    --ink: #e8e8e8; --dim: #9a9a9a; --accent: #5b9dd9;
+    --good: #6fbf73; --bad: #d9705b;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 14px; background: var(--bg); color: var(--ink);
+    font: 12px/1.5 "Segoe UI", system-ui, sans-serif;
+  }
+  h1 { font-size: 13px; font-weight: 600; margin: 0 0 2px; }
+  p.sub { margin: 0 0 12px; color: var(--dim); font-size: 11px; }
+  code { color: var(--accent); }
+  button {
+    background: var(--accent); color: #fff; border: 0; border-radius: 3px;
+    padding: 7px 14px; font: inherit; font-weight: 600; cursor: pointer;
+  }
+  button:disabled { background: #4a4a4a; color: var(--dim); cursor: default; }
+  button.ghost { background: transparent; border: 1px solid var(--line); color: var(--ink); font-weight: 400; }
+  .row { display: flex; gap: 8px; align-items: center; margin-bottom: 12px; }
+  #status { color: var(--dim); font-size: 11px; }
+  table { width: 100%; border-collapse: collapse; margin-top: 4px; }
+  th, td { text-align: right; padding: 4px 8px; border-bottom: 1px solid var(--line); font-variant-numeric: tabular-nums; }
+  th:first-child, td:first-child { text-align: left; }
+  th { color: var(--dim); font-weight: 500; font-size: 11px; }
+  caption { text-align: left; color: var(--accent); font-weight: 600; padding: 12px 0 2px; font-size: 11px; }
+  .verdict { margin-top: 14px; padding: 10px 12px; border-radius: 3px; background: var(--panel); border-left: 3px solid var(--line); }
+  .verdict.good { border-left-color: var(--good); }
+  .verdict.bad { border-left-color: var(--bad); }
+  .verdict b { display: block; margin-bottom: 3px; }
+  .note { color: var(--dim); font-size: 11px; }
+  .tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--line); margin: 10px 0 12px; }
+  .tab {
+    background: transparent; border: 0; border-bottom: 2px solid transparent;
+    color: var(--dim); padding: 6px 12px; font: inherit; font-weight: 500; cursor: pointer;
+  }
+  .tab.active { color: var(--ink); border-bottom-color: var(--accent); }
+  .danger {
+    margin-top: 18px; padding: 10px 12px; border-radius: 3px;
+    background: var(--panel); border-left: 3px solid var(--bad);
+  }
+  .danger b { display: block; margin-bottom: 3px; }
+  .danger .note { display: block; margin-bottom: 8px; }
+  td.yes { color: var(--good); }
+  td.no { color: var(--bad); }
+  td.warn { color: #d9b45b; }
+</style>
+</head>
+<body>
+  <h1>Node Timeline — spikes</h1>
+
+  <div class="tabs">
+    <button class="tab active" data-pane="transport">Transport · S2c</button>
+    <button class="tab" data-pane="identity">Identity · S3</button>
+    <button class="tab" data-pane="drift">Drift · S4</button>
+    <button class="tab" data-pane="undo">Undo · S5</button>
+    <button class="tab" data-pane="census">Time model · S6</button>
+  </div>
+
+  <div id="pane-transport">
+    <p class="sub">
+      The same measurements as the socket spike, run through <code>evalScript</code> from a
+      docked panel. No agent, no <code>scheduleTask</code> poll, and After Effects holds focus.
+    </p>
+
+    <div class="row">
+      <button id="run">Run measurements</button>
+      <button id="copy" class="ghost" disabled>Copy JSON</button>
+      <span id="status">idle</span>
+    </div>
+
+    <div id="out"></div>
+  </div>
+
+  <div id="pane-identity" hidden>
+    <p class="sub">
+      Can a graph node keep a durable handle on an AE layer? Four candidate carriers
+      against the operations a user actually performs. <b>A duplicate collision is not
+      automatically a failure — being unable to detect it is.</b>
+    </p>
+
+    <div class="row">
+      <button id="runId">Run identity matrix</button>
+      <button id="runCost" class="ghost">Measure read cost</button>
+      <button id="copyId" class="ghost" disabled>Copy JSON</button>
+      <span id="idStatus">idle</span>
+    </div>
+
+    <div id="idOut"></div>
+
+    <div class="danger">
+      <b>Save / reload test</b>
+      <span class="note">
+        The only way to prove an id survives a project round trip is to perform one.
+        This <b>saves the current project to a temp file, closes it, and reopens it</b> —
+        so anything unsaved in the open project is gone. Run it deliberately.
+      </span>
+      <button id="runPersist" class="ghost">Run save/reload test</button>
+    </div>
+  </div>
+
+  <div id="pane-drift" hidden>
+    <p class="sub">
+      After Effects will not tell us when the user edits the comp we generated.
+      Can we notice — cheaply enough to check on every diff, and precisely enough
+      to say <i>what</i> moved? Snapshots are keyed by <b>layer id, never index</b>:
+      an index-keyed snapshot calls a one-layer reorder "everything changed",
+      which is true and useless.
+    </p>
+
+    <div class="row">
+      <button id="runDrift">Run drift tests</button>
+      <button id="copyDrift" class="ghost" disabled>Copy JSON</button>
+      <span id="driftStatus">idle</span>
+    </div>
+
+    <div id="driftOut"></div>
+  </div>
+
+  <div id="pane-undo" hidden>
+    <p class="sub">
+      Every patch we make enters After Effects' undo stack — which the user owns
+      and we do not. The question that matters is the last one:
+      <b>does continuous patching evict the user's undo history?</b> If it does,
+      no amount of transport speed makes live sync acceptable.
+    </p>
+
+    <div class="row">
+      <button id="runUndo">Run undo tests</button>
+      <button id="copyUndo" class="ghost" disabled>Copy JSON</button>
+      <span id="undoStatus">idle</span>
+    </div>
+
+    <div id="undoOut"></div>
+  </div>
+
+  <div id="pane-census" hidden>
+    <p class="sub">
+      The MVP gives the graph <b>structure</b> and leaves <b>time</b> to After Effects.
+      That is only the right call if real shots are substantially structural. This
+      counts both sides of <b>the comp you currently have open</b> — your own work,
+      read-only, nothing is written.
+      <br><br>
+      <b>Stated before looking:</b> if animated properties outnumber structural
+      relationships by more than <b>3:1</b>, a structure-only graph is showing the
+      minority of the work, and Wall 4 option (b) — time as a graph input — comes
+      forward instead.
+    </p>
+
+    <div class="row">
+      <button id="runCensus">Census the active comp</button>
+      <button id="dumpStructure" class="ghost">Dump structure</button>
+      <button id="copyCensus" class="ghost" disabled>Copy JSON</button>
+      <span id="censusStatus">idle</span>
+    </div>
+
+    <div id="censusOut"></div>
+  </div>
+
+<script src="./lib/CSInterface.js"></script>
+<script>
+(function () {
+  'use strict';
+
+  var csi = new CSInterface();
+  var LAYERS = 200;
+  var results = null;
+
+  // CEP hands back a string and nothing else, so every host entry point
+  // returns JSON and the round trip is timed on this side.
+  // evalScript runs synchronously inside After Effects, so a slow script freezes
+  // AE's UI and the panel just sits there. The call cannot be cancelled, but it
+  // can at least be reported rather than looking like a dead panel.
+  var EVAL_WARN_MS = 20000;
+  function evalScript(src) {
+    return new Promise(function (resolve, reject) {
+      var t0 = performance.now();
+      var warned = setTimeout(function () {
+        try {
+          var el = document.getElementById('driftStatus');
+          if (el) el.textContent = 'still waiting on AE (' + Math.round((performance.now() - t0) / 1000) +
+            's) — ' + src.slice(0, 40) + '. AE is busy, not dead.';
+        } catch (e) {}
+      }, EVAL_WARN_MS);
+      csi.evalScript(src, function (raw) {
+        clearTimeout(warned);
+        var rtt = performance.now() - t0;
+        var parsed;
+        try { parsed = JSON.parse(raw); }
+        catch (e) { return reject(new Error('unparseable from host: ' + String(raw).slice(0, 200))); }
+        if (!parsed.ok) return reject(new Error(parsed.message || 'host reported failure'));
+        parsed.rttMs = rtt;
+        resolve(parsed);
+      });
+    });
+  }
+
+  function stat(xs) {
+    var s = xs.slice().sort(function (a, b) { return a - b; });
+    var at = function (q) { return s[Math.min(s.length - 1, Math.floor(q * s.length))]; };
+    return { min: s[0], median: at(0.5), p90: at(0.9), max: s[s.length - 1], n: s.length };
+  }
+
+  var ms = function (v) { return v == null ? '—' : v.toFixed(1) + ' ms'; };
+  var us = function (v) { return v == null ? '—' : Math.round(v) + ' µs'; };
+  var status = function (t) { document.getElementById('status').textContent = t; };
+
+  function table(caption, head, rows) {
+    var h = '<table><caption>' + caption + '</caption><tr>';
+    head.forEach(function (c) { h += '<th>' + c + '</th>'; });
+    h += '</tr>';
+    rows.forEach(function (r) {
+      h += '<tr>';
+      r.forEach(function (c) { h += '<td>' + c + '</td>'; });
+      h += '</tr>';
+    });
+    return h + '</table>';
+  }
+
+  // navigator.clipboard needs a secure context; a CEP panel is loaded over
+  // file://, so it is silently unavailable and writeText() resolves into the
+  // void. execCommand('copy') on a real selection still works there.
+  function copyText(t) {
+    try {
+      var ta = document.createElement('textarea');
+      ta.value = t;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      var ok = document.execCommand('copy');
+      document.body.removeChild(ta);
+      if (ok) return true;
+    } catch (e) { /* fall through */ }
+    try { if (navigator.clipboard) { navigator.clipboard.writeText(t); return true; } } catch (e) {}
+    return false;
+  }
+
+  async function repeat(n, fn) {
+    var out = [];
+    for (var i = 0; i < n; i++) out.push(await fn(i));
+    return out;
+  }
+
+  async function run() {
+    var out = document.getElementById('out');
+    out.innerHTML = '';
+    results = { when: new Date().toISOString(), transport: 'cep-evalscript', layers: LAYERS };
+
+    status('checking host...');
+    results.host = await evalScript('NTL_info()');
+
+    status('building comp...');
+    results.ensure = await evalScript('NTL_ensure(' + LAYERS + ')');
+
+    // M0 - the floor. NTL_noop() returns a constant; AE does no work at all.
+    status('M0 floor...');
+    var floor = stat(await repeat(40, function () {
+      return evalScript('NTL_noop()').then(function (r) { return r.rttMs; });
+    }));
+    results.floor = floor;
+    out.innerHTML += table('M0 — round trip with AE doing nothing',
+      ['', 'min', 'median', 'p90', 'max'],
+      [['evalScript floor', ms(floor.min), ms(floor.median), ms(floor.p90), ms(floor.max)]]);
+
+    // M2 - property writes.
+    status('M2 patches...');
+    results.patches = [];
+    var patchRows = [];
+    var sizes = [1, 10, 50, 200];
+    for (var i = 0; i < sizes.length; i++) {
+      var n = sizes[i];
+      var runs = await repeat(8, (function (size) {
+        return function (k) { return evalScript('NTL_patch(' + size + ', ' + (40 + k) + ')'); };
+      })(n));
+      var rtt = stat(runs.map(function (r) { return r.rttMs; }));
+      var inAe = stat(runs.map(function (r) { return r.us / 1000; }));
+      // Derive per-write from the MEDIAN, not from runs[0] - a single slow first
+      // run reported 189 us/write against a median-derived 130 us.
+      var perWrite = (inAe.median * 1000) / n;
+      results.patches.push({ n: n, rtt: rtt, inAeMs: inAe, usPer: perWrite });
+      patchRows.push([n + ' properties', ms(rtt.median), ms(rtt.p90), ms(inAe.median), us(perWrite)]);
+    }
+    out.innerHTML += table('M2 — property writes, one undo group',
+      ['', 'rtt median', 'rtt p90', 'in AE', 'per write'], patchRows);
+
+    // M3 - what a reconciler actually does.
+    //
+    // Repeated, and reported as a median. The first version of this spike ran
+    // it once, and that single sample disagreed 3x with the socket spike's
+    // single sample of the same operation - which says nothing about AE and
+    // everything about sampling a number whose spread is already known to
+    // exceed 2x (see M2's min/p90). This is the measurement the whole design
+    // rests on; it does not get to be a single sample.
+    status('M3 diff...');
+    results.diff = [];
+    var diffRows = [];
+    var modes = [false, true];
+    for (var d = 0; d < modes.length; d++) {
+      var changed = modes[d];
+      var runs = await repeat(8, (function (mode) {
+        return function () { return evalScript('NTL_diff(200, ' + mode + ')'); };
+      })(changed));
+      var rtt = stat(runs.map(function (r) { return r.rttMs; }));
+      var inAe = stat(runs.map(function (r) { return r.us / 1000; }));
+      var per = stat(runs.map(function (r) { return r.usPer; }));
+      results.diff.push({
+        changed: changed, rtt: rtt, inAeMs: inAe, usPer: per,
+        writes: runs[0].writes, samples: runs.map(function (r) { return r.us / 1000; })
+      });
+      diffRows.push([changed ? '200 props, all changed' : '200 props, clean',
+        ms(rtt.median), ms(inAe.median), ms(inAe.min), us(per.median), runs[0].writes]);
+    }
+    out.innerHTML += table('M3 — diff pass: resolve, read, write only on change',
+      ['', 'rtt median', 'in AE median', 'in AE best', 'per prop', 'writes'], diffRows);
+
+    // M4 - structure. Also repeated: the previous run's n=1 read 30.6 ms per
+    // add against 14.3 ms at n=50, which is a warm-up artifact, not a cost.
+    status('M4 structural...');
+    results.structural = [];
+    var structRows = [];
+    var counts = [1, 10, 50];
+    for (var c = 0; c < counts.length; c++) {
+      var sn = counts[c];
+      var runs = await repeat(sn === 50 ? 3 : 6, (function (size) {
+        return function () { return evalScript('NTL_structural(' + size + ')'); };
+      })(sn));
+      var add = stat(runs.map(function (r) { return r.usPerAdd; }));
+      var rem = stat(runs.map(function (r) { return r.usPerRemove; }));
+      var srtt = stat(runs.map(function (r) { return r.rttMs; }));
+      results.structural.push({ n: sn, rtt: srtt, usPerAdd: add, usPerRemove: rem });
+      structRows.push([sn + ' layers', ms(srtt.median), us(add.median), us(add.min), us(rem.median)]);
+    }
+    out.innerHTML += table('M4 — add then remove layers',
+      ['', 'rtt median', 'per add', 'per add (best)', 'per remove'], structRows);
+
+    verdict(out);
+
+    status('saving...');
+    var saved = await evalScript('NTL_save("' + encodeURIComponent(JSON.stringify(results, null, 2)) + '")');
+    status('done — ' + saved.path);
+    document.getElementById('copy').disabled = false;
+  }
+
+  function verdict(out) {
+    // The socket transport's own numbers, for comparison.
+    var SOCKET_LIVE = 94;   // S1, AE live
+    var SOCKET_BG = 281;    // S2, AE idle or backgrounded
+    var p50 = results.patches.filter(function (p) { return p.n === 50; })[0];
+    var clean = results.diff.filter(function (d) { return !d.changed; })[0];
+    var f = results.floor.median;
+    var patch = p50 ? p50.rtt.median : null;
+
+    var lines = [];
+    lines.push('evalScript floor ' + ms(f) + ', against the socket agent at ' +
+               SOCKET_LIVE + ' ms live / ' + SOCKET_BG + ' ms backgrounded.');
+    if (patch != null) lines.push('50-property patch: ' + ms(patch) + ' round trip.');
+    if (clean) {
+      lines.push('Clean 200-property diff: ' + ms(clean.inAeMs.median) + ' in AE (best ' +
+                 ms(clean.inAeMs.min) + '), ' + ms(clean.rtt.median) + ' round trip.');
+      // The socket spike measured 6.8 ms for this. A 3x disagreement between
+      // transports on a cost that is purely AE's would mean one of the two runs
+      // is measuring its own instrument, so say so rather than pick a favourite.
+      if (clean.inAeMs.median > 14) {
+        lines.push('<b>Note:</b> the socket spike measured 6.8 ms for this same pass. ' +
+                   'Both cannot be right about a cost that never leaves AE — treat the ' +
+                   'clean-diff figure as unsettled until it reproduces.');
+      }
+    }
+
+    var cls, head;
+    if (patch != null && patch < 40) {
+      cls = 'good';
+      head = 'Live sync is viable. Fast enough to drag a value and watch AE track it.';
+    } else if (patch != null && patch < 100) {
+      cls = '';
+      head = 'A good debounced live view. Drag-tracking is marginal.';
+    } else {
+      cls = 'bad';
+      head = 'The floor is not the socket poll — it is After Effects. Going native would not fix this.';
+    }
+
+    out.innerHTML += '<div class="verdict ' + cls + '"><b>' + head + '</b>' +
+      '<span class="note">' + lines.join('<br>') + '</span></div>' +
+      '<p class="note">Comp <b>NTL Spike</b> was created or reused and left in the viewer. ' +
+      'Delete it when you are done; nothing else was touched.</p>';
+  }
+
+  document.getElementById('run').addEventListener('click', function () {
+    var btn = this;
+    btn.disabled = true;
+    run().catch(function (err) {
+      status('failed');
+      document.getElementById('out').innerHTML +=
+        '<div class="verdict bad"><b>Spike failed</b><span class="note">' + err.message + '</span></div>';
+    }).then(function () { btn.disabled = false; });
+  });
+
+  document.getElementById('copy').addEventListener('click', function () {
+    if (!results) return;
+    status(copyText(JSON.stringify(results, null, 2))
+      ? 'copied to clipboard'
+      : 'clipboard unavailable — use the saved JSON file above');
+  });
+
+  // ---------------------------------------------------------------- S3 identity
+
+  var idResults = null;
+  var idStatus = function (t) { document.getElementById('idStatus').textContent = t; };
+  var OPS = ['baseline', 'reorder', 'rename', 'duplicate', 'undo', 'precompose'];
+
+  // Persist after every phase. The first version of this tab only offered a
+  // Copy JSON button, so a completed run - including the destructive
+  // save/reload, which costs a project to repeat - existed nowhere but the
+  // panel's memory. Results that are expensive to reproduce get written down.
+  async function saveId(phase) {
+    if (!idResults) return '';
+    try {
+      var r = await evalScript('NTL_saveIdentity("' +
+        encodeURIComponent(JSON.stringify(idResults, null, 2)) + '")');
+      return r.path || '';
+    } catch (e) {
+      idStatus('warning: could not save results — ' + e.message);
+      return '';
+    }
+  }
+
+  // A cell says what happened, not merely pass/fail: a duplicate that collides
+  // is the expected and useful outcome for a stamped carrier.
+  function cell(r) {
+    if (!r.supported) return '<td class="no">unsupported</td>';
+    if (r.error) return '<td class="no" title="' + r.error + '">error</td>';
+    if (r.note) return '<td class="warn" title="' + r.note + '">untested</td>';
+    // For a native id, direct lookup is the production path; scanning is not.
+    // Report the lookup verdict, and flag any disagreement between the two.
+    if (r.carrier === 'native') {
+      if (!r.resolvedDirectly) {
+        return '<td class="no" title="app.project.layerByID() did not resolve it">lookup lost</td>';
+      }
+      var where = r.directComp ? ' → ' + r.directComp : '';
+      if (r.op === 'duplicate') {
+        return '<td class="yes" title="the copy got its own id' + where + '">unique</td>';
+      }
+      if (!r.survived) {
+        return '<td class="warn" title="lookup found it but a scan did not — fine, the scan is not the real path">lookup ok' + where + '</td>';
+      }
+      return '<td class="yes" title="resolved by lookup' + where + '">kept' + where + '</td>';
+    }
+    if (!r.survived) return '<td class="no">lost</td>';
+    if (r.op === 'duplicate') {
+      return r.collision
+        ? '<td class="warn" title="both layers carry the same id — detectable, and the reconciler must reassign">collides ×' + r.matches + '</td>'
+        : '<td class="yes">unique</td>';
+    }
+    if (r.matches > 1) return '<td class="warn">kept, ×' + r.matches + '</td>';
+    return '<td class="yes">kept</td>';
+  }
+
+  async function runIdentity() {
+    var out = document.getElementById('idOut');
+    out.innerHTML = '';
+    idResults = { when: new Date().toISOString(), transport: 'cep-evalscript' };
+
+    idStatus('probing for a native layer id...');
+    var probe = await evalScript('NTL_idProbe()');
+    idResults.probe = probe;
+
+    var yn = function (b, extra) { return b ? 'yes' + (extra ? ' — ' + extra : '') : 'no'; };
+    out.innerHTML += table('Native identity — what this After Effects offers',
+      ['', 'result'],
+      [
+        ['AE version', probe.version],
+        ['layer.id exists', yn(probe.hasLayerId, probe.idA)],
+        ['unique per layer', probe.hasLayerId ? (probe.uniquePerLayer ? 'yes' : 'NO') : '—'],
+        ['duplicate gets a new id', probe.hasLayerId ? (probe.duplicateGetsNewId ? 'yes' : 'no — inherits') : '—'],
+        ['comp.layerByID()', yn(probe.hasCompLayerByID) + ' (expected: no)'],
+        ['<b>app.project.layerByID()</b>', yn(probe.hasProjectLayerByID)],
+        ['app.project.itemByID()', yn(probe.hasProjectItemByID)],
+        ['id → layer round trip', yn(probe.idRoundTrip)],
+        ['layer → containingComp', probe.containingComp || '—'],
+        ['comp id round trip', yn(probe.compIdRoundTrip)],
+        ['deleted layer id resolves to', probe.deletedResolvesTo || '—']
+      ]);
+
+    // If AE assigns durable ids AND can resolve them project-wide, the whole
+    // stamping question is demoted to a fallback - say so loudly rather than
+    // burying it under the matrix.
+    if (probe.hasLayerId && probe.uniquePerLayer && probe.hasProjectLayerByID && probe.idRoundTrip) {
+      out.innerHTML += '<div class="verdict good">' +
+        '<b>Native ids exist, are unique, and resolve project-wide.</b>' +
+        '<span class="note">Useful — but measure before designing around it. Reading ' +
+        '<code>layer.id</code> off a layer you already hold costs ~2.4 µs; ' +
+        '<code>app.project.layerByID()</code> costs ~71 µs, roughly 30× more. For a whole-comp ' +
+        'pass, walking the comp and building a map is far cheaper than looking each layer up. ' +
+        'Lookup earns its keep for resolving one layer on demand, not for bulk reconciliation. ' +
+        'Check the precompose column below before treating a native id as durable.</span></div>';
+    } else if (probe.hasLayerId && !probe.hasProjectLayerByID) {
+      out.innerHTML += '<div class="verdict"><b>Native ids exist, but nothing resolves them.</b>' +
+        '<span class="note">Without a lookup, a native id costs a full scan to use — the same ' +
+        'cost as a stamped carrier, with none of the control. Prefer stamping.</span></div>';
+    }
+
+    var carriers = ['comment', 'marker', 'effect'];
+    if (probe.hasLayerId) carriers.unshift('native');
+
+    idStatus('running matrix...');
+    idResults.matrix = [];
+    var html = '<table><caption>Survival matrix — tag layer 1, do the thing, find it again by id</caption><tr><th>carrier</th>';
+    OPS.forEach(function (o) { html += '<th>' + o + '</th>'; });
+    html += '</tr>';
+
+    for (var c = 0; c < carriers.length; c++) {
+      html += '<tr><td>' + carriers[c] + '</td>';
+      for (var o = 0; o < OPS.length; o++) {
+        idStatus(carriers[c] + ' / ' + OPS[o] + '...');
+        var r = await evalScript('NTL_identityTest("' + carriers[c] + '", "' + OPS[o] + '")');
+        idResults.matrix.push(r);
+        html += cell(r);
+      }
+      html += '</tr>';
+    }
+    out.innerHTML += html + '</table>';
+
+    var undone = idResults.matrix.filter(function (r) { return r.op === 'undo'; });
+    var undoMethod = undone.length ? undone[0].undoMethod : '';
+    out.innerHTML += '<p class="note">Undo was triggered via <b>' +
+      (undoMethod || 'nothing — the undo column is untested, not passed') + '</b>. ' +
+      'The save/reload round trip is a separate, destructive test below.</p>';
+
+    var savedTo = await saveId('matrix');
+    idStatus(savedTo ? 'done — ' + savedTo : 'done');
+    document.getElementById('copyId').disabled = false;
+  }
+
+  async function runCost() {
+    var out = document.getElementById('idOut');
+    idStatus('measuring read cost...');
+    var carriers = ['comment', 'marker', 'effect'];
+    if (idResults && idResults.probe && idResults.probe.hasLayerId) carriers.unshift('native');
+    var rows = [];
+    var costs = [];
+    for (var i = 0; i < carriers.length; i++) {
+      var r = await evalScript('NTL_identityCost("' + carriers[i] + '")');
+      costs.push(r);
+      rows.push([carriers[i], r.n,
+        r.usPerWrite > 0 ? us(r.usPerWrite) : '— (AE assigns)',
+        us(r.usPerRead),
+        r.usPerLookup >= 0 ? us(r.usPerLookup) : '—',
+        ((r.usPerRead / 31.7) * 100).toFixed(0) + '%']);
+    }
+    if (idResults) idResults.cost = costs;
+    out.innerHTML += table('Cost — the reconciler pays this on every diff',
+      ['carrier', 'layers', 'per write', 'per read', 'per lookup', 'read vs a property read (31.7 µs)'], rows);
+    out.innerHTML += '<p class="note"><b>per read</b> is reading the id off a layer you already ' +
+      'hold; <b>per lookup</b> is <code>app.project.layerByID()</code> finding one you do not. ' +
+      'Only the second is the reconciler\'s real resolve path for native ids.</p>';
+    var savedTo = await saveId('cost');
+    idStatus(savedTo ? 'done — ' + savedTo : 'done');
+  }
+
+  async function runPersist() {
+    var out = document.getElementById('idOut');
+    idStatus('save / reload...');
+    var carriers = ['comment', 'marker', 'effect'];
+    if (idResults && idResults.probe && idResults.probe.hasLayerId) carriers.unshift('native');
+    var rows = [];
+    var persisted = [];
+    for (var i = 0; i < carriers.length; i++) {
+      var r = await evalScript('NTL_identitySaveReload("' + carriers[i] + '")');
+      persisted.push(r);
+      rows.push([carriers[i], r.before || '—', r.after || '—',
+        r.survived ? 'kept' : 'LOST' + (r.note ? ' — ' + r.note : '')]);
+    }
+    if (idResults) idResults.persist = persisted;
+    out.innerHTML += table('Save / reload — does the id survive a project round trip',
+      ['carrier', 'before', 'after', 'verdict'], rows);
+    var savedTo = await saveId('persist');
+    idStatus(savedTo ? 'done — ' + savedTo : 'done');
+  }
+
+  function wire2(id, fn, statusFn, outId) {
+    document.getElementById(id).addEventListener('click', function () {
+      var btn = this;
+      btn.disabled = true;
+      fn().catch(function (err) {
+        statusFn('failed');
+        document.getElementById(outId).innerHTML +=
+          '<div class="verdict bad"><b>Failed</b><span class="note">' + err.message + '</span></div>';
+      }).then(function () { btn.disabled = false; });
+    });
+  }
+  function wire(id, fn) { wire2(id, fn, idStatus, 'idOut'); }
+  wire('runId', runIdentity);
+  wire('runCost', runCost);
+  wire('runPersist', runPersist);
+
+  document.getElementById('copyId').addEventListener('click', function () {
+    if (!idResults) return;
+    idStatus(copyText(JSON.stringify(idResults, null, 2))
+      ? 'copied to clipboard'
+      : 'clipboard unavailable — use the saved JSON file above');
+  });
+
+  // ------------------------------------------------------------------- S4 drift
+
+  var driftResults = null;
+  var driftStatus = function (t) { document.getElementById('driftStatus').textContent = t; };
+  var LEVELS = ['structural', 'transform', 'effects'];
+  var MUTATIONS = ['none', 'rename', 'reorder', 'move', 'opacity', 'disable',
+                   'delete', 'addLayer', 'clearComment', 'addEffect', 'parent'];
+
+  async function saveDrift() {
+    if (!driftResults) return '';
+    try {
+      var r = await evalScript('NTL_saveDrift("' +
+        encodeURIComponent(JSON.stringify(driftResults, null, 2)) + '")');
+      return r.path || '';
+    } catch (e) { return ''; }
+  }
+
+  async function runDrift() {
+    var out = document.getElementById('driftOut');
+    out.innerHTML = '';
+    driftResults = { when: new Date().toISOString(), transport: 'cep-evalscript' };
+
+    // --- is there any native signal at all? ---
+    driftStatus('probing for a native change signal...');
+    var probe = await evalScript('NTL_driftProbe()');
+    driftResults.probe = probe;
+    out.innerHTML += table('Native change signals — what AE offers', ['', ''],
+      [['found', probe.found || 'nothing'], ['absent', probe.missing || '—']]);
+    if (!probe.controlFound) {
+      out.innerHTML += '<div class="verdict bad"><b>The probe itself is broken.</b>' +
+        '<span class="note">Its control (<code>app.project.numItems</code>, which certainly ' +
+        'exists) was not found, so "AE offers nothing" is not a conclusion you can draw from ' +
+        'this row.</span></div>';
+    }
+
+    // dirty and revision exist. Existing is not the same as being usable.
+    driftStatus('testing whether the signal actually tracks edits...');
+    var sig = await evalScript('NTL_driftSignal()');
+    driftResults.signal = sig;
+    out.innerHTML += table('app.project.dirty / revision — does it track edits?',
+      ['', 'dirty/revision'],
+      [
+        ['at start', sig.atStart],
+        ['after reads only (must NOT move)', sig.afterIdle + (sig.movesOnIdle ? '  ← moved' : '')],
+        ['after a real edit', sig.afterEdit + (sig.movesOnEdit ? '  ← moved' : '  ← did not move')],
+        ['after rewriting the same value', sig.afterSameValue + (sig.movesOnSameValueWrite ? '  ← moved' : '')],
+        ['after a second edit', sig.afterEdit2 + (sig.incrementsPerEdit ? '  ← moved again' : '  ← latched')],
+        ['cost to read', us(sig.usPerRead)]
+      ]);
+
+    if (sig.movesOnEdit && sig.incrementsPerEdit && !sig.movesOnIdle) {
+      out.innerHTML += '<div class="verdict good"><b>Usable as a gate.</b>' +
+        '<span class="note">It moves on every edit and stays still when nothing happens, at ' +
+        us(sig.usPerRead) + ' to read. Then the snapshot only runs when this has changed — ' +
+        'which is worth more than making the snapshot faster. It still cannot say <i>what</i> ' +
+        'changed, or whether the change was ours, so the snapshot below is still the answer to ' +
+        'those.</span></div>';
+    } else if (sig.movesOnEdit && !sig.incrementsPerEdit) {
+      out.innerHTML += '<div class="verdict"><b>Latches, does not count.</b>' +
+        '<span class="note">It moved on the first edit but not the second, so it reports ' +
+        '"something has happened since the project was saved", not "something happened since ' +
+        'I last looked". Useless as a per-diff gate.</span></div>';
+    } else if (!sig.movesOnEdit) {
+      out.innerHTML += '<div class="verdict bad"><b>Does not track edits.</b>' +
+        '<span class="note">It exists but did not move for a real edit, so polling the ' +
+        'snapshot is the only option.</span></div>';
+    }
+
+    // --- what does a snapshot cost? ---
+    // Walk the curve rather than taking one 200-layer sample. A pass that is
+    // quadratic in layer count looks fine at 25 and hangs at 200, and the first
+    // run of this spike did exactly that - so a level that is already slow at a
+    // small n is abandoned before it can freeze AE at a large one.
+    // Which property is unreadable? Asked directly, once, before the sweep.
+    driftStatus('probing individual property reads...');
+    try {
+      var pp = await evalScript('NTL_probeProps()');
+      driftResults.propProbe = pp;
+      out.innerHTML += '<p class="note"><b>Per-property read probe:</b><br>' +
+        String(pp.report).split('   |   ').join('<br>') + '</p>';
+    } catch (err) {
+      driftResults.propProbe = { failed: err.message };
+      out.innerHTML += '<p class="note"><b>Per-property read probe failed:</b> ' + err.message + '</p>';
+    }
+
+    driftStatus('measuring snapshot cost...');
+    driftResults.cost = [];
+    var costRows = [];
+    var SIZES = [25, 50, 100, 200];
+    var BUDGET_MS = 4000;
+    for (var i = 0; i < LEVELS.length; i++) {
+      for (var z = 0; z < SIZES.length; z++) {
+        driftStatus('cost: ' + LEVELS[i] + ' at n=' + SIZES[z] + '...');
+        // Rendered as they arrive. The whole sweep previously rendered only at
+        // the end, so one failure threw away every row already measured.
+        var c;
+        try {
+          c = await evalScript('NTL_driftCost("' + LEVELS[i] + '", ' + SIZES[z] + ')');
+        } catch (err) {
+          costRows.push([LEVELS[i] + ' · n=' + SIZES[z], 'FAILED — ' + err.message,
+            '', '', '', '', '', '', '', '', '']);
+          driftResults.cost.push({ level: LEVELS[i], n: SIZES[z], failed: err.message });
+          break;
+        }
+        driftResults.cost.push(c);
+        costRows.push([LEVELS[i] + ' · n=' + c.n,
+          ms(c.resolveUs / 1000), ms(c.readUs / 1000), ms(c.joinUs / 1000),
+          ms(c.snapUs / 1000), c.usPerLayer < 0 ? '—' : us(c.usPerLayer),
+          (c.digestChars / 1024).toFixed(1) + ' KB',
+          ms(c.hashUs / 1000), ms(c.strcmpUs / 1000), ms(c.mapCmpUs / 1000),
+          c.readErrors ? String(c.readErrors) + ' — ' + c.firstReadError : '—']);
+        if (c.snapUs / 1000 > BUDGET_MS) {
+          costRows.push([LEVELS[i] + ' · larger n', 'skipped — already past ' +
+            BUDGET_MS + ' ms at n=' + c.n, '', '', '', '', '', '', '', '', '']);
+          break;
+        }
+      }
+    }
+    out.innerHTML += table('Snapshot cost as a curve — compare with 6.3 ms for a clean property diff',
+      ['level · n', 'resolve layers', 'read fields', 'join', 'snapshot total', 'per layer',
+       'digest', 'hash it', 'string compare', 'map compare', 'unreadable fields'], costRows);
+    out.innerHTML += '<p class="note"><b>resolve</b> is <code>comp.layer(i)</code> with no field ' +
+      'reads at all. If that column grows faster than linearly, the cost is in resolving layers ' +
+      'and the fix is to resolve once and reuse — not to read fewer fields.</p>';
+    out.innerHTML += '<p class="note">Hashing and comparing are alternatives, not additions: ' +
+      'you either keep the previous snapshot and compare it, or keep a hash and compare that. ' +
+      'Whichever is cheaper wins — hashing a long string character by character in ExtendScript ' +
+      'is not obviously cheap.</p>';
+
+    // --- does it actually catch what matters? ---
+    driftStatus('fidelity matrix...');
+    driftResults.detect = [];
+    var html = '<table><caption>Fidelity — is the edit detected, and how many layers does it touch</caption>' +
+               '<tr><th>user does this</th>';
+    LEVELS.forEach(function (l) { html += '<th>' + l + '</th>'; });
+    html += '</tr>';
+    for (var m = 0; m < MUTATIONS.length; m++) {
+      var mut = MUTATIONS[m];
+      html += '<tr><td>' + mut + '</td>';
+      for (var l = 0; l < LEVELS.length; l++) {
+        driftStatus(mut + ' / ' + LEVELS[l] + '...');
+        var r = await evalScript('NTL_driftDetect("' + LEVELS[l] + '", "' + mut + '")');
+        driftResults.detect.push(r);
+        if (mut === 'none') {
+          // The control: reporting drift when nothing happened is a false
+          // positive, and would make every other row meaningless.
+          html += r.detected
+            ? '<td class="no" title="false positive — nothing was changed">FALSE POSITIVE</td>'
+            : '<td class="yes">quiet</td>';
+        } else if (!r.detected) {
+          html += '<td class="no" title="' + r.what + '">missed</td>';
+        } else {
+          var detail = [];
+          if (r.added) detail.push('+' + r.added);
+          if (r.removed) detail.push('&minus;' + r.removed);
+          if (r.changed) detail.push('~' + r.changed);
+          html += '<td class="yes" title="' + r.what + '">' + detail.join(' ') + '</td>';
+        }
+      }
+      html += '</tr>';
+    }
+    out.innerHTML += html + '</table>';
+    out.innerHTML += '<p class="note">On a 6-layer comp. <b>+</b> added, <b>&minus;</b> removed, ' +
+      '<b>~</b> changed. A reorder legitimately shifts several indices at once; that is why the ' +
+      'count is shown rather than a bare tick.</p>';
+
+    // --- does OUR patch look like drift? ---
+    driftStatus('self-patch...');
+    driftResults.selfPatch = [];
+    var selfRows = [];
+    for (var s2 = 0; s2 < LEVELS.length; s2++) {
+      var sp = await evalScript('NTL_driftSelfPatch("' + LEVELS[s2] + '")');
+      driftResults.selfPatch.push(sp);
+      selfRows.push([LEVELS[s2], sp.patched,
+        sp.previousValue + ' → ' + sp.wroteValue,
+        !sp.opacityInScope
+          ? 'n/a — opacity is not in a structural snapshot'
+          : (sp.ownPatchLooksLikeDrift ? 'yes — ~' + sp.ownPatchChanged : 'NO — suspect, see note'),
+        sp.cleanAfterRebase ? 'clean' : 'STILL DIRTY', ms(sp.rebaseUs / 1000)]);
+    }
+    out.innerHTML += table('Our own patch — indistinguishable from user drift unless we re-snapshot',
+      ['level', 'properties written', 'value', 'looks like drift', 'after re-snapshot', 're-snapshot cost'], selfRows);
+    out.innerHTML += '<p class="note">A level where opacity is out of scope cannot answer this ' +
+      'question; only the transform and effects rows are evidence. If a row in scope says ' +
+      '<b>NO</b>, the test wrote a value that was already there — check the value column.</p>';
+
+    var savedTo = await saveDrift();
+    driftStatus(savedTo ? 'done — ' + savedTo : 'done');
+    document.getElementById('copyDrift').disabled = false;
+  }
+
+  wire2('runDrift', runDrift, driftStatus, 'driftOut');
+  document.getElementById('copyDrift').addEventListener('click', function () {
+    if (!driftResults) return;
+    driftStatus(copyText(JSON.stringify(driftResults, null, 2))
+      ? 'copied to clipboard'
+      : 'clipboard unavailable — use the saved JSON file above');
+  });
+
+  // -------------------------------------------------------------------- S5 undo
+
+  var undoResults = null;
+  var undoStatus = function (t) { document.getElementById('undoStatus').textContent = t; };
+
+  async function saveUndo() {
+    if (!undoResults) return '';
+    try {
+      var r = await evalScript('NTL_saveUndo("' +
+        encodeURIComponent(JSON.stringify(undoResults, null, 2)) + '")');
+      return r.path || '';
+    } catch (e) { return ''; }
+  }
+
+  // A pause between firing an undo and reading the result. If AE queues menu
+  // commands, it needs a turn to run them - and the read must be a separate
+  // evalScript call regardless.
+  function pause(msec) {
+    return new Promise(function (r) { setTimeout(r, msec); });
+  }
+
+  var UNDO_METHODS = ['menu', 'id16', 'id2'];
+
+  // Prove an undo can be made to happen AT ALL before measuring anything with
+  // one. Set opacity to 33, fire, read back in a separate call: if it is not
+  // back to its original value, that method did nothing.
+  async function findWorkingUndo(out) {
+    var rows = [];
+    var working = '';
+    for (var i = 0; i < UNDO_METHODS.length; i++) {
+      var m = UNDO_METHODS[i];
+      undoStatus('control: does "' + m + '" actually undo?');
+      var began = await evalScript('NTL_undoBegin("control", 1)');
+      var fired = await evalScript('NTL_undoFire("' + m + '", 1)');
+      await pause(200);
+      var after = await evalScript('NTL_undoInspect()');
+      var reverted = (after.opacity === began.originalOpacity);
+      rows.push([m, fired.resolvedTo || 'not available',
+        began.originalOpacity + ' → 33 → ' + after.opacity,
+        began.revision + ' → ' + after.revision,
+        reverted ? 'UNDID IT' : 'did nothing']);
+      if (reverted && working === '') working = m;
+      await evalScript('NTL_undoCleanup()');
+    }
+    out.innerHTML += table('Control — which method actually performs an undo?',
+      ['method', 'resolved to', 'opacity', 'revision', 'verdict'], rows);
+    return working;
+  }
+
+  async function runUndo() {
+    var out = document.getElementById('undoOut');
+    out.innerHTML = '';
+    undoResults = { when: new Date().toISOString(), transport: 'cep-evalscript' };
+
+    undoStatus('probing the undo surface...');
+    var probe = await evalScript('NTL_undoProbe()');
+    undoResults.probe = probe;
+    out.innerHTML += table('The undo surface', ['', ''],
+      [['found', probe.found || 'nothing'],
+       ['absent', probe.missing || '—'],
+       ['Undo menu command id', probe.undoMenuId || 'not found'],
+       ['undo levels configured', probe.undoLevels > 0
+          ? probe.undoLevels + '  (' + probe.undoLevelsFrom + ')'
+          : probe.undoLevelsFrom]]);
+
+    // ---- the gate ----
+    var method = await findWorkingUndo(out);
+    undoResults.workingMethod = method;
+
+    if (!method) {
+      out.innerHTML += '<div class="verdict bad">' +
+        '<b>No method could perform an undo from a script. S5 is UNTESTED.</b>' +
+        '<span class="note">Not "undo is broken" and emphatically not "patching evicts history" — ' +
+        'simply that this instrument cannot trigger an undo, so it cannot measure anything that ' +
+        'depends on one. The previous run reported five findings that were all this single ' +
+        'artefact.<br><br>What this <i>does</i> establish: <b>a script cannot roll back its own ' +
+        'patch via the undo stack</b>, which matters for error recovery — a failed patch has to be ' +
+        'reverted by writing the old values back, not by asking AE to undo.<br><br>The remaining ' +
+        'questions (atomicity, ordering, eviction) need a human pressing Ctrl+Z, or a native AEGP. ' +
+        'They stay open.</span></div>';
+      undoResults.verdict = 'UNTESTED — no scriptable undo';
+      var sp0 = await saveUndo();
+      undoStatus(sp0 ? 'done (untested) — ' + sp0 : 'done (untested)');
+      document.getElementById('copyUndo').disabled = false;
+      return;
+    }
+
+    out.innerHTML += '<div class="verdict good"><b>Undo works via "' + method + '".</b>' +
+      '<span class="note">Everything below is measured with a method proven to actually revert ' +
+      'a known edit.</span></div>';
+
+    // ---- U1 atomicity ----
+    undoStatus('U1 atomicity...');
+    undoResults.atomicity = [];
+    var atomRows = [];
+    var sizes = [1, 4];
+    for (var i = 0; i < sizes.length; i++) {
+      var b = await evalScript('NTL_undoBegin("atomic", ' + sizes[i] + ')');
+      await evalScript('NTL_undoFire("' + method + '", 1)');
+      await pause(200);
+      var a = await evalScript('NTL_undoInspect()');
+      var vals = String(a.allOpacities).split(',').slice(0, sizes[i]);
+      var stillPatched = vals.filter(function (v) { return Number(v) === 17; }).length;
+      undoResults.atomicity.push({ n: sizes[i], before: b, after: a, stillPatched: stillPatched });
+      atomRows.push([sizes[i] + ' properties in one undo group',
+        b.originalOpacity + ' → 17', a.allOpacities,
+        stillPatched === 0 ? 'all reverted — atomic' : stillPatched + ' of ' + sizes[i] + ' still patched — NOT atomic']);
+      await evalScript('NTL_undoCleanup()');
+    }
+    out.innerHTML += table('U1 — is one patch exactly one undo entry?',
+      ['', 'patch', 'opacities after one undo', 'verdict'], atomRows);
+
+    // U2 falls out of the same runs: did the drift gate move across the undo?
+    var u2Rows = undoResults.atomicity.map(function (r) {
+      var delta = r.after.revision - r.before.revision;
+      return [r.n + ' properties reverted', r.before.revision + ' to ' + r.after.revision,
+        '+' + delta, delta > 0 ? 'S4 gate sees it' : 'INVISIBLE to the gate'];
+    });
+    undoResults.detectable = (undoResults.atomicity.length > 0) &&
+      (undoResults.atomicity[0].after.revision > undoResults.atomicity[0].before.revision);
+    out.innerHTML += table('U2 - does an undo move app.project.revision, so S4 notices?',
+      ['', 'revision', 'delta', 'verdict'], u2Rows);
+    out.innerHTML += '<p class="note">The delta tracks the number of properties reverted rather ' +
+      'than counting one per undo, so the gate not only sees an undo, it sees roughly how much ' +
+      'of one.</p>';
+
+    // ---- U3 ordering ----
+    undoStatus('U3 ordering...');
+    var ob = await evalScript('NTL_undoBegin("order", 1)');
+    await evalScript('NTL_undoFire("' + method + '", 1)');
+    await pause(200);
+    var oa = await evalScript('NTL_undoInspect()');
+    undoResults.order = { before: ob, after: oa };
+    var undidOurs = (oa.opacity !== 11 && oa.name === 'USER-EDIT');
+    var undidTheirs = (oa.name === ob.originalName);
+    out.innerHTML += table('U3 — the user edits, then we patch. Whose work does one Ctrl+Z undo?',
+      ['', ''],
+      [['layer name after the undo', oa.name],
+       ['opacity after the undo', oa.opacity + '  (patch wrote 11)'],
+       ['what got undone', undidOurs ? 'OUR patch' : (undidTheirs ? 'the user edit' : 'neither — unclear')]]);
+    if (undidOurs) {
+      out.innerHTML += '<div class="verdict"><b>Our patches sit on top of the user\u2019s history.</b>' +
+        '<span class="note">Expected, the stack being last-in-first-out — but it means a Ctrl+Z ' +
+        'after any patch of ours undoes <i>our</i> work, not theirs.</span></div>';
+    }
+    await evalScript('NTL_undoCleanup()');
+
+    // ---- U4 eviction ----
+    undoStatus('U4 eviction — the one that matters...');
+    undoResults.depth = [];
+    var depthRows = [];
+    // Pushed past 99, After Effects' documented maximum undo levels. 80 passed
+    // because 81 entries still fit; that is "the limit is above 80", not "there
+    // is no limit". Find the boundary rather than inferring it.
+    var DEPTHS = [5, 40, 80, 100, 140, 200];
+    for (var k = 0; k < DEPTHS.length; k++) {
+      undoStatus('U4 at ' + DEPTHS[k] + ' patches...');
+      var db = await evalScript('NTL_undoBegin("depth", ' + DEPTHS[k] + ')');
+      var df = await evalScript('NTL_undoFire("' + method + '", ' + (DEPTHS[k] + 1) + ')');
+      await pause(300);
+      var da = await evalScript('NTL_undoInspect()');
+      var evicted = (da.name === 'USER-EDIT');
+      undoResults.depth.push({ patches: DEPTHS[k], fired: df.fired, before: db, after: da, evicted: evicted });
+      depthRows.push([DEPTHS[k] + ' patches on top', df.fired + ' undos fired', da.name,
+        evicted ? 'EVICTED — unreachable' : 'still reachable']);
+      await evalScript('NTL_undoCleanup()');
+    }
+    out.innerHTML += table('U4 — does our patching evict the user\u2019s undo history?',
+      ['', 'undos fired', 'layer name after undoing everything', 'the user\u2019s edit'], depthRows);
+
+    var firstEvicted = undoResults.depth.filter(function (r) { return r.evicted; })[0];
+    if (firstEvicted) {
+      out.innerHTML += '<div class="verdict bad"><b>Live patching destroys the user\u2019s undo history.</b>' +
+        '<span class="note">Their edit became unreachable after ' + firstEvicted.patches + ' patches. ' +
+        'A reconciler writing once per interaction frame would burn that in a second or two. Patches ' +
+        'must be coalesced into one undo group per gesture, or written through a path that does not ' +
+        'enter the undo stack.</span></div>';
+    } else {
+      out.innerHTML += '<div class="verdict good"><b>The user\u2019s history survived every depth tested.</b>' +
+        '<span class="note">Still reachable after ' + DEPTHS[DEPTHS.length - 1] + ' patches. That does ' +
+        'not prove there is no limit — only that it is beyond what was tested. After Effects’ maximum undo levels is 99, so a depth above that passing would be the surprising result.</span></div>';
+    }
+
+    var savedTo = await saveUndo();
+    undoStatus(savedTo ? 'done — ' + savedTo : 'done');
+    document.getElementById('copyUndo').disabled = false;
+  }
+
+  wire2('runUndo', runUndo, undoStatus, 'undoOut');
+  document.getElementById('copyUndo').addEventListener('click', function () {
+    if (!undoResults) return;
+    undoStatus(copyText(JSON.stringify(undoResults, null, 2))
+      ? 'copied to clipboard'
+      : 'clipboard unavailable — use the saved JSON file above');
+  });
+
+  // ------------------------------------------------------------- S6 time model
+
+  var censusResults = null;
+  var censusStatus = function (t) { document.getElementById('censusStatus').textContent = t; };
+
+  // Stated before any comp is measured, so the verdict cannot be fitted to the
+  // number after the fact.
+  var TIME_DOMINANCE_THRESHOLD = 3;
+
+  async function saveCensus() {
+    if (!censusResults) return '';
+    try {
+      var r = await evalScript('NTL_saveCensus("' +
+        encodeURIComponent(JSON.stringify(censusResults, null, 2)) + '")');
+      return r.path || '';
+    } catch (e) { return ''; }
+  }
+
+  async function runCensus() {
+    var out = document.getElementById('censusOut');
+    censusStatus('reading the active comp...');
+    var c = await evalScript('NTL_census(3, 6)');
+
+    if (!censusResults) censusResults = { when: new Date().toISOString(), comps: [] };
+    censusResults.comps.push(c);
+
+    var structureRows = [
+      ['parent links', c.parentLinks],
+      ['precomp layers', c.precompLayers],
+      ['effects', c.effects],
+      ['masks', c.masks],
+      ['track mattes', c.trackMattes],
+      ['non-normal blend modes', c.blendModes],
+      ['<b>structure score</b>', '<b>' + c.structureScore + '</b>']
+    ];
+    var timeRows = [
+      ['animated properties', c.animatedProperties],
+      ['keyframes', c.keyframes],
+      ['time-remapped layers', c.timeRemapped],
+      ['trimmed layers (in/out moved)', c.trimmedLayers],
+      ['time-stretched layers', c.retimedLayers],
+      ['expressions', c.expressions],
+      ['<b>time score</b>', '<b>' + c.timeScore + '</b>']
+    ];
+
+    out.innerHTML += table('Comp: ' + c.compName, ['', ''],
+      [['layers (incl. nested)', c.layers],
+       ['compositions walked', c.comps + (c.reusedPrecomps ? '  (+' + c.reusedPrecomps + ' reused)' : '')],
+       ['max nesting depth', c.maxNesting],
+       ['layer kinds', 'shape ' + c.shapeLayers + ' · text ' + c.textLayers +
+          ' · null ' + c.nullLayers + ' · camera ' + c.cameraLayers +
+          ' · light ' + c.lightLayers + ' · other ' + c.otherLayers],
+       ['properties inspected', c.properties],
+       ['census took', ms(c.elapsedMs) + (c.depthCapped ? '  — DEPTH CAPPED, counts are a floor' : '')]]);
+
+    out.innerHTML += table('Structure — what the graph would own', ['', 'count'], structureRows);
+    out.innerHTML += table('Time — what After Effects would keep', ['', 'count'], timeRows);
+
+    var ratio = c.timeScore > 0 ? (c.timeScore / Math.max(1, c.structureScore)) : 0;
+    var verdict, cls;
+    if (c.structureScore === 0 && c.timeScore === 0) {
+      verdict = 'This comp is empty of both — measure a real shot instead.';
+      cls = 'bad';
+    } else if (ratio > TIME_DOMINANCE_THRESHOLD) {
+      verdict = 'Time dominates ' + ratio.toFixed(1) + ':1 — above the 3:1 line stated up front. ' +
+        'A structure-only graph would be showing the minority of this shot.';
+      cls = 'bad';
+    } else {
+      verdict = 'Structure holds its own (time:structure is ' + ratio.toFixed(1) + ':1, under the 3:1 line). ' +
+        'A graph that owns structure would be showing a real share of this shot.';
+      cls = 'good';
+    }
+    out.innerHTML += '<div class="verdict ' + cls + '"><b>' + verdict + '</b>' +
+      '<span class="note">One comp is one data point, and the ratio varies enormously by ' +
+      'kind of work. Run this on several real shots — a character rig, a title sequence, a ' +
+      'UI animation, a compositing-heavy shot — before drawing the conclusion. The numbers are ' +
+      'accumulating in the saved JSON.</span></div>';
+
+    var savedTo = await saveCensus();
+    censusStatus(savedTo ? 'done (' + censusResults.comps.length + ' comps measured) — ' + savedTo : 'done');
+    document.getElementById('copyCensus').disabled = false;
+  }
+
+  async function runDump() {
+    var out = document.getElementById('censusOut');
+    censusStatus('dumping structure...');
+    var d = await evalScript('NTL_dumpStructure(200)');
+    if (!censusResults) censusResults = { when: new Date().toISOString(), comps: [] };
+    censusResults.structure = d;
+    out.innerHTML += '<p class="note"><b>Structure of ' + d.compName + '</b>' +
+      (d.capped ? ' (first 200 layers)' : '') + ' — saved to the JSON, and the input for a ' +
+      'node-graph sketch of this shot.</p>';
+    out.innerHTML += '<pre style="overflow-x:auto; background:var(--panel); padding:8px; ' +
+      'border-radius:3px; font-size:11px; max-height:320px">' +
+      d.header + '\n' + d.rows + '</pre>';
+    var savedTo = await saveCensus();
+    censusStatus(savedTo ? 'dumped — ' + savedTo : 'dumped');
+    document.getElementById('copyCensus').disabled = false;
+  }
+
+  wire2('runCensus', runCensus, censusStatus, 'censusOut');
+  wire2('dumpStructure', runDump, censusStatus, 'censusOut');
+  document.getElementById('copyCensus').addEventListener('click', function () {
+    if (!censusResults) return;
+    censusStatus(copyText(JSON.stringify(censusResults, null, 2))
+      ? 'copied to clipboard'
+      : 'clipboard unavailable — use the saved JSON file above');
+  });
+
+  // tabs
+  Array.prototype.forEach.call(document.querySelectorAll('.tab'), function (t) {
+    t.addEventListener('click', function () {
+      Array.prototype.forEach.call(document.querySelectorAll('.tab'), function (o) {
+        o.classList.toggle('active', o === t);
+      });
+      ['transport', 'identity', 'drift', 'undo', 'census'].forEach(function (name) {
+        document.getElementById('pane-' + name).hidden = (t.dataset.pane !== name);
+      });
+    });
+  });
+
+  status(typeof window.__adobe_cep__ === 'undefined'
+    ? 'not running inside CEP — open this as a panel in After Effects'
+    : 'ready');
+  idStatus(typeof window.__adobe_cep__ === 'undefined' ? 'not in CEP' : 'ready');
+})();
+</script>
+</body>
+</html>

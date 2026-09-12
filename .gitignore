@@ -1,0 +1,11 @@
+node_modules/
+
+# Measurement output lands in %TEMP% by design — the panel and the in-AE checks
+# write there so a run never touches the repo. Results worth keeping are quoted
+# in docs/SPIKES.md with the reasoning, not committed as raw dumps.
+*.log
+
+# Windows / OneDrive litter
+Thumbs.db
+desktop.ini
+.DS_Store

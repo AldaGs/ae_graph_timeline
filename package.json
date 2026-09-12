@@ -1,0 +1,12 @@
+{
+  "name": "node-timeline",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "A node graph that replaces After Effects' layered timeline. The graph is the source of truth; AE renders.",
+  "scripts": {
+    "test": "node --test test/diff.test.js test/reader.test.js test/patch.test.js",
+    "preflight": "python tools/jsx_check.py jsx/common.jsx jsx/reader.jsx jsx/patch.jsx",
+    "cep:install": "node cep-spike/install.mjs"
+  }
+}
