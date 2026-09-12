@@ -221,8 +221,14 @@ revision gate, expression round-tripping, one-undo-per-patch, rollback by invers
 and every refusal all behave as the fake predicted; cached handles agree with
 fresh lookups throughout. Writes measured 47.6 µs against the 130 µs budgeted.
 
-One sequence is still open: run 1 failed on *undo → write → undo*, run 2 no
-longer performed it, and run 3 puts it back rather than calling it fixed.
+Run 3 put the *undo → write → undo* sequence back and **it passes (34/34)**,
+including a patch applied straight after an undo — so the graph can re-assert
+itself after the user presses Ctrl+Z. Run 1's failure is narrowed to one
+operation the product never performs: a WRITE through a handle cached across an
+undo. Recorded as an observation, since `patch.jsx` re-resolves by scanning on
+every patch.
+
+**P1.1, P1.2 and P1.3 are closed.**
 
 **Next: P1.4's drift guard and P1.5's coalesced write loop.**
 

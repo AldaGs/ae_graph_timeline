@@ -296,6 +296,36 @@ function ntlcRun() {
     ntlcCheck('a patch applies normally after an undo', 61,
               ntlcTrace('after the post-undo patch'));
 
+    // ---- 6d. the last difference between run 1 and runs 2-3 --------------
+    //
+    // Runs 2 and 3 read through cached handles freely and never disagreed with
+    // a fresh lookup - but every WRITE in them goes through a fresh scan. Run 1
+    // did one thing neither repeats: it WROTE through a property handle cached
+    // before an undo, and that write is where it failed.
+    //
+    // Recorded as an observation rather than a check. If After Effects really
+    // does drop such a write, that is a fact about AE, not a defect in the
+    // reconciler - the writer re-resolves by scanning on every patch, so
+    // production never does this. A red check here would mislead.
+    app.beginUndoGroup('NTL P1 check — cached-handle write');
+    var cachedWriteThrew = '';
+    try {
+        opacityA.setValue(77);
+    } catch (e) {
+        cachedWriteThrew = String(e && (e.message || e));
+    }
+    app.endUndoGroup();
+    var afterCachedWrite = ntlcFresh('a');
+    app.executeCommand(16);
+
+    results.cachedHandleWrite = {
+        note: 'run 1 wrote through a handle cached across an undo, and failed there',
+        threw: cachedWriteThrew,
+        landed: String(afterCachedWrite) === '77',
+        freshAfterWrite: String(afterCachedWrite),
+        freshAfterUndo: String(ntlcFresh('a'))
+    };
+
     // ---- 7. the stale guard fires ----------------------------------------
     var stale = NTL_ApplyPatch(NTLC_COMP,
         [{ op: 'setProp', node: 'a', prop: 'opacity', to: 3 }],

@@ -1285,3 +1285,52 @@ scale with project size** - if so, scanning gets *better* at size, not worse. Le
 as an open question; the reader's header no longer quotes the 71.5 µs ratio as
 though it were settled. The decision does not depend on it either way: a reader
 that wants all n layers has nothing to gain from n lookups at any price.
+
+---
+
+## P1 in-AE pass — run 3 (2026-09-12, AE 26.5x89): **PASS, 34/34**
+
+The sequence run 2 stopped performing was put back, and **it passes**:
+
+| check | result |
+|---|---|
+| a write lands immediately after an undo | 33 ✓ |
+| undo still works after an undo-then-write sequence | ✓ |
+| a patch applies normally after an undo | 61 ✓ |
+
+Twelve trace steps, cached and fresh reads agreeing on every one, and `revision`
+moving forward through all three undos (13849 → 13850 → 13852). The reconciler
+can re-assert the graph after the user presses Ctrl+Z.
+
+### What run 1 was, most likely
+
+Three runs now share every behaviour except one. Runs 2 and 3 **read** through
+cached handles constantly and never disagreed with a fresh lookup — but every
+**write** in them goes through a fresh scan. Run 1 did one thing neither repeats:
+it wrote `setValue(7)` through a property handle cached before an undo, and that
+write is exactly where it failed.
+
+So the residual hypothesis is narrow and testable: *a cached property handle is
+safe to read across an undo, but may not be safe to write through.*
+
+Check `6d` now records that experiment as an **observation, not a check**. If
+After Effects really does drop such a write, that is a fact about AE rather than
+a defect here — `jsx/patch.jsx` re-resolves by scanning on every patch, so the
+product never performs the suspect operation. A red check would imply a problem
+that does not exist.
+
+**The upshot: the code was already doing the right thing, and the harness was
+doing something the product never does.** That is the fifth time in this project
+the instrument, not After Effects, turned out to be the finding — and the reason
+every check here carries a control.
+
+### Prices across three runs
+
+| | run 1 | run 2 | run 3 |
+|---|---|---|---|
+| per property write | 48.8 µs | 47.6 µs | **46.8 µs** |
+| read round trip | 0.95 ms | 0.96 ms | 0.96 ms |
+| patch round trip (10 ops) | 0.75 ms | 0.70 ms | 0.69 ms |
+| `layerByID` | 3.3 µs | 3.2 µs | 3.7 µs |
+
+Tight enough across runs to plan against. **P1.1 and P1.3 are closed.**
