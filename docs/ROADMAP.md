@@ -230,7 +230,90 @@ every patch.
 
 **P1.1, P1.2 and P1.3 are closed.**
 
-**Next: P1.4's drift guard and P1.5's coalesced write loop.**
+### P1.4 — the drift guard (done offline, owed an in-AE pass)
+
+`src/drift.js`. After Effects has no event that says the user edited the comp
+behind our back (Wall 2), so drift is detected by comparison — and the only
+reason that is affordable is S4's 2.3 µs revision read. Three tiers, cheapest
+first:
+
+| tier | what it costs | what it answers |
+|---|---|---|
+| the **gate** — `app.project.revision` | 2.3 µs, and it is the only thing that runs while idle | did anything in the project move? |
+| the **snapshot** — a full structural read, digested | one read, well inside a patch budget | what does the comp hold now? |
+| the **compare** — digest against digest | pure JS | did *our* comp move, and where? |
+
+**A moved revision is not yet drift, and that distinction is the point.** The
+revision is project-wide: a selection, a view change, or an edit in another comp
+moves it while the comp under reconciliation has not changed at all. A guard that
+stopped there would cry wolf every few seconds. The digest is what turns that
+into `spurious` — the revision is adopted, and nothing is reported.
+
+Managed and unmanaged layers are digested **separately**, so the user
+rearranging their own layers is reported and never blocking. Five changes *are*
+blocking, because each means an identity the graph was holding is no longer the
+thing it thought: the comp changed, a tagged layer vanished, a tag moved to a
+different native id (what precompose does, per S3), a tag became ambiguous, or an
+edge we authored came back hand-written. Everything else — a nudged value, a
+rename — the next diff simply corrects, because the graph is the source of truth.
+
+**Our own patch is not drift.** The baseline is projected forward through the ops
+we just sent, so the next compare means "someone *else* changed something". A
+patch that created a layer is deliberately not projectable — the native id and
+the out point are AE's to decide — and earns one fresh read instead of a guess.
+
+The layer `index` is deliberately **not** digested: an index is a position, and
+including it would report every layer in the comp as drifted the moment one was
+inserted. Values are canonicalised at the same 1e-6 tolerance the diff uses, or
+the guard would report drift the diff then found nothing to correct — a loop that
+reads, reports and writes forever.
+
+### P1.5 — the coalesced write loop (done offline, owed an in-AE pass)
+
+`src/loop.js`. Mutate the graph, call `touch()`, and After Effects follows. One
+measurement shapes the whole file: S5 put the undo stack at exactly 99 entries,
+so a patch per frame would evict the user's entire history in under two seconds
+of dragging.
+
+- **While a gesture is open, nothing is written at all.** A gesture is a hold,
+  not a debounce: the comp is patched once, when the gesture ends, and costs one
+  undo entry however many times the graph was mutated inside it.
+- A mutation with no gesture around it is **debounced**, and the window restarts
+  on each further mutation.
+- **Only one patch is ever in flight.** A mutation arriving mid-patch marks the
+  loop dirty again and gets its own pass, rather than racing a patch computed
+  from a comp state that is already stale.
+- A pass with nothing to write opens **no undo group at all** — an empty one
+  would still cost one of the 99.
+
+Each pass is read → guard → diff → patch, in that order. A stale patch is
+re-read and re-diffed, never re-sent. A patch that failed partway is rolled back
+by re-applying its inverse. A read that cannot be trusted is not written from,
+and leaves the loop dirty so nothing is lost.
+
+Drift that blocks **holds** the loop: the pending change is not written, the
+panel is told what moved, and the user chooses `acceptDrift()` or
+`discardPending()`. That is P1's "refuses or reports", wired to a decision.
+
+**46 further offline tests, 90 in all.** `test/fake-ae.js` now loads the real
+`reader.jsx` as well as the real `patch.jsx`, so the loop tests drive the whole
+reconciler end to end: mutate a plain JS graph, and a comp changes. Each file
+carries a control that must fail — a guard that skips the compare, and a loop
+that patches per touch (40 mutations, 40 undo entries: the behaviour P1.5 exists
+to prevent).
+
+Extending the fake found a fourth instrument bug, of the same family as the other
+three: a VM context is a second JavaScript realm, and `value instanceof Array` is
+false across the boundary — so every array-valued property (position, scale,
+anchor point) silently vanished from the read. After Effects is one realm and
+would never have shown it.
+
+**Owed: the in-AE pass.** `jsx/p1b-check.jsx` asks what the fake cannot — does
+`app.project.revision` really move for each edit we assume (and for an edit in
+another comp), are two reads of an untouched comp byte-identical, and is a
+twelve-op patch really **one** undo entry.
+
+**Next: run `jsx/p1b-check.jsx` inside After Effects.**
 
 **Speed is no longer the top risk.** S1 promoted a different question: with the
 graph as the source of truth, After Effects has no way to tell us the user edited
@@ -301,8 +384,8 @@ the live comp and emits a patch. Mutating the object updates After Effects.
 | P1.1 | Graph model + a comp state reader | **DONE offline** — `src/graph.js`, `jsx/reader.jsx` (scans; read-only; revision-stamped), `src/reader.js` (validates, refuses partial reads). 12 tests, falsified. **VERIFIED IN AE** (run 2, 31/31). |
 | P1.2 | Reconciler: diff graph vs comp state → patch | **DONE** (`src/diff.js`) — pure, read-only, 15/15 offline tests green and falsified against a broken control |
 | P1.3 | Patch emitter: one undo group, properties resolved once, stable ids | **DONE offline** — `jsx/patch.jsx` + `src/patch.js`. Stops on failure, returns an inverse for rollback, refuses stale/keyframed/ambiguous/user-owned. 17 tests run the real JSX in a VM; falsified twice. **VERIFIED IN AE** (run 2, 31/31). |
-| P1.4 | Drift guard, using S4: revision gate → structural snapshot → digest compare | the reconciler refuses or reports when the comp moved under it, at ~0 cost while idle |
-| P1.5 | Coalesced write loop — one undo group per gesture, not per frame (S5) | edit the object in a REPL, watch AE follow, with the user's undo history intact afterwards |
+| P1.4 | Drift guard, using S4: revision gate → structural snapshot → digest compare | **DONE offline** — `src/drift.js`. Three tiers; a moved revision is classified before it is called drift; five changes block, everything else is reported and corrected. 23 tests, falsified against a blind control. **In-AE pass owed** (`jsx/p1b-check.jsx`). |
+| P1.5 | Coalesced write loop — one undo group per gesture, not per frame (S5) | **DONE offline** — `src/loop.js`. A gesture is a hold, not a debounce; one patch in flight; stale re-read, failure rolled back, drift held for the user. 23 tests driving the real reader and writer end to end. **In-AE pass owed.** |
 
 **P1 is done when** a hand-written mutation of the graph object — add a layer,
 retarget a parent, change an effect parameter, delete a layer — reaches AE

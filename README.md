@@ -41,9 +41,11 @@ two halves that talk to AE:
 | `src/diff.js` | graph + comp state → an ordered patch. Pure; no I/O |
 | `src/reader.js` · `jsx/reader.jsx` | the read half. Read-only, revision-stamped, refuses a partial read |
 | `src/patch.js` · `jsx/patch.jsx` | the write half. One undo group, stops on failure, returns an inverse for rollback |
+| `src/drift.js` | the drift guard: a 2.3 µs gate, then a digest, then a compare that says *where* |
+| `src/loop.js` | the write loop: mutate the graph, and AE follows — one undo entry per gesture |
 
 ```bash
-npm test        # 44 offline tests — no After Effects required
+npm test        # 90 offline tests — no After Effects required
 npm run preflight   # ES3 pre-flight on the .jsx files
 ```
 
@@ -66,7 +68,29 @@ positive one proving Undo really undoes, and a check **designed to fail** — if
 that one ever passes the run is marked VOID rather than PASS. Five times in this
 project the instrument, not After Effects, turned out to be the finding.
 
-**Next: P1.4's drift guard and P1.5's coalesced write loop.**
+**P1.4 and P1.5 are built and green offline.** The drift guard asks three
+questions in order of what they cost: `app.project.revision` (2.3 µs, the only
+thing that runs while idle), then a digest of a structural read, then a compare
+that names what moved. A moved revision is **not yet drift** — it is project-wide,
+so a selection or an edit in another comp moves it — and the digest is what turns
+that into "spurious" instead of a false alarm. Five changes block a write, because
+each means an identity the graph was holding is no longer what it thought;
+everything else is reported and corrected by the next diff.
+
+The write loop spends the undo stack the way S5's 99-entry measurement demands:
+**a gesture is a hold, not a debounce.** Nothing is written while one is open, and
+forty mutations inside it cost one undo entry. One patch is ever in flight; a
+stale patch is re-read and re-diffed rather than re-sent; a failed one is rolled
+back by its inverse; blocking drift holds the loop until the user accepts or
+discards. A pass with nothing to write opens no undo group at all.
+
+**Next: run `jsx/p1b-check.jsx` inside After Effects** — does the revision really
+move for every edit we assume, are two reads of an untouched comp byte-identical,
+and is a twelve-op patch really one undo entry.
+
+```bash
+# the P1.4/P1.5 in-AE pass: File > Scripts > Run Script File... > jsx/p1b-check.jsx
+```
 
 ## Spike instruments
 
