@@ -148,10 +148,10 @@ test('a recorded comp reads into a state the diff can use unchanged', () => {
 
   const r = diff(g, state);
 
-  // The edge is already satisfied; only the opacity differs.
-  assert.equal(r.ops.length, 1);
-  assert.equal(r.ops[0].op, 'setProp');
-  assert.equal(r.ops[0].prop, 'opacity');
+  // The edge is already satisfied; only the opacity differs, and the order needs swapping.
+  assert.equal(r.ops.length, 2);
+  assert.equal(r.ops.find(o => o.op === 'setProp').prop, 'opacity');
+  assert.ok(r.ops.find(o => o.op === 'reorder'));
   assert.equal(r.stats.untaggedLayers, 1);
   assert.equal(r.warnings.length, 0);
 });

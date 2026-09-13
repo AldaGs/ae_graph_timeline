@@ -166,6 +166,30 @@ export class FakeLayer {
     this.comp._layers = this.comp._layers.filter((l) => l !== this);
     this.comp.project.revision++;
   }
+  moveBefore(other) {
+    if (this === other) return;
+    this.comp._layers = this.comp._layers.filter(l => l !== this);
+    const idx = this.comp._layers.indexOf(other);
+    this.comp._layers.splice(idx, 0, this);
+    this.comp.project.revision++;
+  }
+  moveAfter(other) {
+    if (this === other) return;
+    this.comp._layers = this.comp._layers.filter(l => l !== this);
+    const idx = this.comp._layers.indexOf(other);
+    this.comp._layers.splice(idx + 1, 0, this);
+    this.comp.project.revision++;
+  }
+  moveToEnd() {
+    this.comp._layers = this.comp._layers.filter(l => l !== this);
+    this.comp._layers.push(this);
+    this.comp.project.revision++;
+  }
+  moveToBeginning() {
+    this.comp._layers = this.comp._layers.filter(l => l !== this);
+    this.comp._layers.unshift(this);
+    this.comp.project.revision++;
+  }
 }
 
 export class FakeComp {

@@ -47,7 +47,7 @@ ${nasty}` }]);
 });
 
 test('an unimplemented op is refused here, not discovered in After Effects', () => {
-  assert.throws(() => applyPatchCall([{ op: 'reorder', node: 'a' }]),
+  assert.throws(() => applyPatchCall([{ op: 'fakeOp', node: 'a' }]),
     (e) => e instanceof PatchError && /not implemented/.test(e.message));
 });
 

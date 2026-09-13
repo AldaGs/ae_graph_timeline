@@ -230,6 +230,7 @@ test('add, retarget, change and delete all reach the comp in one patch each', as
   // delete a layer
   delete graph.nodes.c;
   await loop.gesture('delete node C', () => loop.touch());
+  if (ae.comp.byTag('c')) console.log('C WAS NOT DELETED!', ae.comp.byTag('c').name);
   assert.equal(ae.comp.byTag('c'), undefined);
 
   assert.equal(loop.stats.patches, 5, 'one gesture, one patch, one undo entry - five times');

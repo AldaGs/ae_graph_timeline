@@ -17,7 +17,7 @@ export const SUPPORTED_OPS = new Set([
   'createLayer', 'deleteLayer', 'setName', 'setProp',
   'setParent', 'setExpression', 'clearExpression',
   'addEffect', 'removeEffect', 'setEffect', 'setBlendMode',
-  'linkEffectToHost',
+  'linkEffectToHost', 'setComment', 'setEnabled', 'setLabel', 'reorder'
 ]);
 
 export class PatchError extends Error {

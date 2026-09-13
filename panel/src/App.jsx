@@ -10,17 +10,18 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import Canvas from './canvas/Canvas.jsx';
+import { Outliner } from './components/Outliner';
 import { createHost } from './bridge/cep.js';
-import { createGraph, addNode, addEffect, BLEND_MODES } from '../../src/graph.js';
+import { createGraph, addNode, addEffect, BLEND_MODES, hydrateFromComp, addEdge } from '../../src/graph.js';
 import { nextNodeId, renameNode, removeNode } from '../../src/view.js';
 import { revisionCall, parseRevision } from '../../src/drift.js';
+import { readCompCall, parseCompState } from '../../src/reader.js';
 import './App.css';
 
 // Something to look at on first run. Deliberately a graph and not a comp: M1 is
 // the canvas over the model, and reading an existing comp into a graph is M3's
 // problem (and, for a hand-built comp, explicitly out of the MVP).
-function seedGraph() {
-  const graph = createGraph();
+function seedGraph(graph) {
   addNode(graph, { id: 'n1', name: 'Background', kind: 'solid',
     props: { position: [960, 540], scale: [100, 100], opacity: 100 }, ui: { x: 40, y: 40 } });
   addNode(graph, { id: 'n2', name: 'Card', kind: 'solid',
@@ -37,7 +38,7 @@ export default function App() {
   // of truth for the comp, and cloning it on every keystroke to satisfy React's
   // identity checks would make "the graph" an ambiguous thing. `version` is what
   // tells React something changed.
-  const graph = useRef(seedGraph()).current;
+  const graph = useRef(createGraph()).current;
   const [version, setVersion] = useState(0);
   const [selected, setSelected] = useState(null);
   const [message, setMessage] = useState(null);
@@ -97,20 +98,41 @@ export default function App() {
   // Wire M3 write loop
   const loopRef = useRef(null);
   useEffect(() => {
-    if (!host.connected) return;
-    import('../../src/loop.js').then(({ createWriteLoop }) => {
-      loopRef.current = createWriteLoop({ 
-        host, 
-        graph, 
-        includeEffects: true,
-        onSync: (status) => setLink({ state: 'live', detail: status })
+    if (!host.connected) {
+      seedGraph(graph);
+      redraw();
+      return;
+    }
+    
+    // M4 Phase D: hydrate the graph from the comp on startup before attaching loop
+    host.evalScript(readCompCall({ includeEffects: true })).then((json) => {
+      const compState = parseCompState(json);
+      hydrateFromComp(graph, compState);
+      
+      // If the comp was totally empty of tagged layers, fall back to seed
+      if (Object.keys(graph.nodes).length === 0) {
+        seedGraph(graph);
+      }
+      
+      redraw();
+      
+      import('../../src/loop.js').then(({ createWriteLoop }) => {
+        loopRef.current = createWriteLoop({ 
+          host, 
+          graph, 
+          includeEffects: true,
+          onSync: (status) => setLink({ state: 'live', detail: status })
+        });
+        // Initial flush
+        loopRef.current.touch();
       });
-      // Initial flush
-      loopRef.current.touch();
+    }).catch(e => {
+      console.error('Failed to hydrate on startup:', e);
+      setLink({ state: 'error', detail: e.message });
     });
     
     return () => loopRef.current?.close();
-  }, [host, graph]);
+  }, [host, graph, redraw]);
 
   useEffect(() => { void ping(); }, [ping]);
 
@@ -256,6 +278,7 @@ export default function App() {
             <button onClick={() => { addExpressionNode(contextMenu); closeContextMenu(); }}>Expression</button>
           </div>
         )}
+        <Outliner graph={graph} version={version} onChanged={onChanged} />
       </div>
 
       <footer className="ntl-foot">

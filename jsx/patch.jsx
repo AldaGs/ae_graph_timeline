@@ -37,10 +37,16 @@ function ntlpFail(reason) {
 
 // ------------------------------------------------------------------ resolving
 
-function ntlpLayer(ctx, nodeId) {
+function ntlpLayer(ctx, nodeId, nativeId) {
     var l = ctx.byTag[nodeId];
     if (l === undefined) throw ntlpFail('no layer carries the tag "' + nodeId + '"');
     if (ctx.counts[nodeId] > 1) {
+        if (nativeId !== undefined && nativeId !== null) {
+            for (var i = 1; i <= ctx.comp.numLayers; i++) {
+                if (ctx.comp.layer(i).id === nativeId) return ctx.comp.layer(i);
+            }
+            throw ntlpFail('no layer found with id ' + nativeId + ' for tag "' + nodeId + '"');
+        }
         // S3: a duplicated layer carries the same comment. The diff already
         // warns; the writer refuses outright, because writing to the wrong one
         // of an ambiguous pair is exactly the silent corruption we are here to
@@ -108,6 +114,8 @@ function ntlpCreateLayer(ctx, op) {
     ctx.byTag[op.node] = layer;
     ctx.counts[op.node] = 1;
     ctx.created++;
+    // M4: record the native id so the panel can cache it on the graph node.
+    ctx.createdIds[op.node] = layer.id;
 
     if (op.props) {
         for (var k in op.props) {
@@ -122,7 +130,8 @@ function ntlpCreateLayer(ctx, op) {
 }
 
 function ntlpDeleteLayer(ctx, op) {
-    var layer = ntlpLayer(ctx, op.node);
+    // M4: use nativeId to target the right duplicate if available
+    var layer = ntlpLayer(ctx, op.node, op.nativeId);
     layer.remove();
     delete ctx.byTag[op.node];
     delete ctx.counts[op.node];
@@ -137,6 +146,92 @@ function ntlpSetName(ctx, op) {
     var before = layer.name;
     layer.name = op.to;
     return { op: 'setName', node: op.node, to: before };
+}
+
+function ntlpSetEnabled(ctx, op) {
+    var layer = ntlpLayer(ctx, op.node);
+    var before = layer.enabled;
+    layer.enabled = op.to;
+    return { op: 'setEnabled', node: op.node, to: before };
+}
+
+function ntlpSetLabel(ctx, op) {
+    var layer = ntlpLayer(ctx, op.node);
+    var before = layer.label;
+    layer.label = op.to;
+    return { op: 'setLabel', node: op.node, to: before };
+}
+
+function ntlpReorder(ctx, op) {
+    // op.tags is the desired top-to-bottom order of managed layers.
+    // To achieve this without scrambling unmanaged layers unnecessarily,
+    // we iterate the desired array backward, and move each layer above the
+    // lowest possible remaining managed layer.
+    // Wait, the simplest robust way to sort an interleaved subset is to find the
+    // actual layer instances in AE in their current order, and just re-insert them 
+    // in the new order at the exact indices they occupied.
+    // E.g. managed layers are at index 2, 5, 8. 
+    // We want the node array [A, B, C] to go into indices 2, 5, 8.
+    // So A goes to 2, B goes to 5, C goes to 8.
+    
+    // 1. Gather all managed layer instances that are part of this reorder, and their current indices.
+    var currentIndices = [];
+    var layersById = {};
+    for (var i = 1; i <= ctx.comp.numLayers; i++) {
+        var layer = ctx.comp.layer(i);
+        var tag = ntlrTag(layer.comment);
+        // Only consider layers that are in op.tags
+        for (var j = 0; j < op.tags.length; j++) {
+            if (op.tags[j] === tag && ctx.counts[tag] === 1) {
+                currentIndices.push(i);
+                layersById[tag] = layer;
+                break;
+            }
+        }
+    }
+    
+    // Sort currentIndices just in case (AE is 1-based, top-to-bottom)
+    currentIndices.sort(function(a, b) { return a - b; });
+    
+    // 2. Now place the desired layers into these slots.
+    // Because moving layers shifts indices, we work bottom-up.
+    // The lowest desired layer (last in op.tags) goes to the highest index (last in currentIndices).
+    // If we move the bottom-most layer into position first, it doesn't affect the indices of the slots above it.
+    for (var k = op.tags.length - 1; k >= 0; k--) {
+        var tagToMove = op.tags[k];
+        var targetIndex = currentIndices[k];
+        var layerToMove = layersById[tagToMove];
+        
+        if (!layerToMove) continue; // Layer might have been deleted or missing
+        
+        // Move it before the layer that is currently at targetIndex + 1
+        // If targetIndex is the very bottom (comp.numLayers), we move it to the end.
+        if (targetIndex === ctx.comp.numLayers) {
+            layerToMove.moveToEnd();
+        } else {
+            // It goes above whatever is currently at targetIndex.
+            // Wait, if we are working bottom-up, placing it above (targetIndex + 1) works because
+            // whatever is at targetIndex+1 and below is already finalized.
+            var anchor = ctx.comp.layer(targetIndex + 1);
+            if (layerToMove.index !== targetIndex) {
+                // If it's already at targetIndex, no need to move.
+                // Note: if it's currently BELOW the anchor, moving it BEFORE the anchor puts it at targetIndex.
+                // If it's currently ABOVE the anchor, moving it BEFORE the anchor ALSO puts it at targetIndex.
+                layerToMove.moveBefore(anchor);
+            }
+        }
+    }
+    
+    // A single revert op that puts them back the way they were
+    return { op: 'reorder', tags: op.current, current: op.tags };
+}
+
+
+function ntlpSetComment(ctx, op) {
+    var layer = ntlpLayer(ctx, op.node, op.nativeId);
+    var before = layer.comment;
+    layer.comment = op.comment;
+    return { op: 'setComment', node: op.node, nativeId: op.nativeId, comment: before };
 }
 
 function ntlpSetProp(ctx, op) {
@@ -344,7 +439,10 @@ function ntlpApplyOne(ctx, op) {
         case 'removeEffect':    return ntlpRemoveEffect(ctx, op);
         case 'linkEffectToHost':return ntlpLinkEffectToHost(ctx, op);
         case 'setBlendMode':    return ntlpSetBlendMode(ctx, op);
-        case 'reorder':         throw ntlpFail('reorder is not implemented in P1');
+        case 'setComment':      return ntlpSetComment(ctx, op);
+        case 'setEnabled':      return ntlpSetEnabled(ctx, op);
+        case 'setLabel':        return ntlpSetLabel(ctx, op);
+        case 'reorder':         return ntlpReorder(ctx, op);
     }
     throw ntlpFail('unknown op "' + String(op.op) + '"');
 }
@@ -408,7 +506,7 @@ function NTL_ApplyPatch(compName, ops, label, expectRevision) {
         $.hiresTimer;
         var scan = ntlrScanTags(comp);
         ctx = { comp: comp, byTag: scan.byTag, counts: scan.counts,
-                props: {}, writes: 0, created: 0 };
+                props: {}, writes: 0, created: 0, createdIds: {} };
         var scanMs = $.hiresTimer / 1000;
 
         // ONE group for the whole patch. S5: the stack holds 99 entries.
@@ -433,6 +531,7 @@ function NTL_ApplyPatch(compName, ops, label, expectRevision) {
             applied: applied,
             writes: ctx.writes,
             created: ctx.created,
+            createdIds: ctx.createdIds,
             scanMs: scanMs,
             elapsedMs: $.hiresTimer / 1000,
             revision: app.project.revision,

@@ -145,9 +145,11 @@ export function addNode(graph, node) {
     kind: node.kind || 'solid',
     name: node.name || node.id,
     parent: node.parent ?? null,
+    nativeId: node.nativeId ?? null,
     order: node.order ?? Object.keys(graph.nodes).length + 1,
-    blendMode: node.blendMode || 'normal',
+    blendMode: node.blendMode ?? 'normal',
     label: node.label ?? KIND_DEFAULT_LABEL[node.kind || 'solid'] ?? 0,
+    enabled: node.enabled ?? true,
     props: { ...(node.props || {}) },
     // For M3 effect nodes
     matchName: node.matchName || null,
@@ -166,6 +168,15 @@ export function addNode(graph, node) {
     ui: { x: node.ui?.x ?? 0, y: node.ui?.y ?? 0 },
   };
   return graph.nodes[node.id];
+}
+
+// M4: bind a native After Effects layer.id to a graph node. Called after a
+// createLayer receipt returns, and during comp hydration.
+export function bindNativeId(graph, nodeId, nativeId) {
+  const node = graph.nodes[nodeId];
+  if (!node) return null;
+  node.nativeId = nativeId;
+  return node;
 }
 
 // Moving a node is a change to the drawing, never to the comp. Kept as its own
@@ -276,4 +287,33 @@ export function desiredExpressions(graph) {
     };
   }
   return out;
+}
+
+// M4 Phase D: Rebuild or bind graph nodes from a read compState.
+export function hydrateFromComp(graph, compState) {
+  if (compState.compId) graph.compName = compState.compName;
+  for (const layer of compState.layers) {
+    const nodeId = nodeIdFromTag(layer.comment);
+    if (!nodeId) continue;
+    
+    if (graph.nodes[nodeId]) {
+      // Node exists, just bind the native id
+      bindNativeId(graph, nodeId, layer.nativeId);
+    } else {
+      // Node missing (e.g. panel reload), recreate it as a layer node
+      addNode(graph, {
+        id: nodeId,
+        nativeId: layer.nativeId,
+        kind: layer.kind,
+        name: layer.name,
+        blendMode: layer.blendMode,
+        label: layer.label,
+        enabled: layer.enabled,
+        props: { ...layer.props },
+        // We do not recover effects here since they belong to effect nodes,
+        // which are a bigger challenge for M6 persistence.
+      });
+    }
+  }
+  return graph;
 }

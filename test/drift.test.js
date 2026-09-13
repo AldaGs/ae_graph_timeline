@@ -166,11 +166,14 @@ test('the five changes that invalidate an identity are all blocking', () => {
   assert.equal(compareSnapshots(before, snapshot(gone)).verdict, 'refuse');
   assert.deepEqual(kinds(compareSnapshots(before, snapshot(gone))), ['vanished']);
 
-  // The tag survived but it is on a different layer - what precompose does
+  // M4 Phase C: The tag survived but it is on a different layer - what precompose does
   // (S3: the native id does not survive it), and what a delete-and-paste does.
+  // Because the tag is unique, it is 'rebindable', not 'replaced', and does not block.
   const replaced = base();
   replaced.layers[0].nativeId = 777;
-  assert.deepEqual(kinds(compareSnapshots(before, snapshot(replaced))), ['replaced']);
+  const replacedReport = compareSnapshots(before, snapshot(replaced));
+  assert.deepEqual(kinds(replacedReport), ['rebindable']);
+  assert.equal(replacedReport.verdict, 'report');
 
   const duped = base();
   duped.layers.push({ ...duped.layers[0], nativeId: 778 });

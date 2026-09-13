@@ -26,6 +26,7 @@ import { readCompCall, parseCompState, ReadError } from './reader.js';
 import { diff } from './diff.js';
 import { applyPatchCall, parseReceipt, rollbackCall, PatchError } from './patch.js';
 import { createDriftGuard, revisionCall, parseRevision, DriftError } from './drift.js';
+import { bindNativeId } from './graph.js';
 
 export class LoopError extends Error {
   constructor(message, detail) {
@@ -126,6 +127,16 @@ export function createWriteLoop({
       emit({ type: 'drift', verdict: 'report', report });
     }
 
+    // M4: Phase C: if the guard reported any 'rebindable' drift (e.g. precompose),
+    // auto-update the handles before computing the diff.
+    if (report.changes) {
+      for (const change of report.changes) {
+        if (change.kind === 'rebindable') {
+          bindNativeId(graph, change.node, change.to);
+        }
+      }
+    }
+
     const { ops, warnings, stats: diffStats } = diff(graph, compState);
 
     if (ops.length === 0) {
@@ -183,6 +194,14 @@ export function createWriteLoop({
     stats.patches++;
     stats.undoEntries++;    // one patch, one undo group, one entry. S5.
     stats.opsWritten += ops.length;
+
+    // M4: bind native AE layer.id values back onto graph nodes so that
+    // duplicate disambiguation works on the next pass.
+    if (receipt.createdIds) {
+      for (const [nodeId, nativeId] of Object.entries(receipt.createdIds)) {
+        bindNativeId(graph, nodeId, nativeId);
+      }
+    }
 
     // Move the baseline through our own ops rather than re-reading. Where that
     // is not possible (a patch that created a layer), the baseline is dropped and

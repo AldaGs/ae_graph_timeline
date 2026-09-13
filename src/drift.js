@@ -220,8 +220,10 @@ export function compareSnapshots(before, after) {
     if (now.facts.nativeId !== was.facts.nativeId) {
       // The tag is still there but on a different layer. Precompose does this
       // (S3: the native id does not survive it), and so does deleting ours and
-      // pasting a copy back.
-      changes.push({ kind: 'replaced', node: nodeId,
+      // pasting a copy back. M4: if the tag is unique, it's a rebind, not a block.
+      const isRebindable = !now.duplicate;
+      const kind = isRebindable ? 'rebindable' : 'replaced';
+      changes.push({ kind, node: nodeId,
         from: was.facts.nativeId, to: now.facts.nativeId,
         message: `tag "${nodeId}" is now on native id ${now.facts.nativeId}, was ${was.facts.nativeId}` });
     }

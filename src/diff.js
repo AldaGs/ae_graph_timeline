@@ -36,7 +36,10 @@ const OP_ORDER = [
   'clearExpression',
   'createLayer',
   'setName',
+  'setComment',
   'setProp',
+  'setEnabled',
+  'setLabel',
   'setBlendMode',
   'setEffect',
   'addEffect',
@@ -81,6 +84,14 @@ export function diff(graph, compState) {
     const known = graph.nodes[nodeId]?.nativeId;
     const original = layers.find((l) => l.nativeId === known) || layers[0];
     resolved.set(nodeId, original);
+
+    // M4: strip tags from copies so they become normal unmanaged AE layers
+    for (const copy of layers) {
+      if (copy !== original) {
+        ops.push({ op: 'setComment', node: nodeId, nativeId: copy.nativeId, comment: '' });
+      }
+    }
+
     warnings.push({
       kind: 'duplicate',
       node: nodeId,
@@ -174,6 +185,14 @@ function getFlattenedEffects(graph, startNodeId) {
       ops.push({ op: 'setBlendMode', node: node.id, from: layer.blendMode, to: node.blendMode });
     }
 
+    if (layer.enabled !== undefined && layer.enabled !== node.enabled) {
+      ops.push({ op: 'setEnabled', node: node.id, from: layer.enabled, to: node.enabled });
+    }
+
+    if (layer.label !== undefined && layer.label !== node.label) {
+      ops.push({ op: 'setLabel', node: node.id, from: layer.label, to: node.label });
+    }
+
     const wantEffects = node.kind === 'effect' 
       ? [{ matchName: node.matchName, name: node.name, params: node.props }]
       : getFlattenedEffects(graph, node.id);
@@ -255,6 +274,32 @@ function getFlattenedEffects(graph, startNodeId) {
         ops.push({ op: 'clearExpression', node: nodeId, prop, edge: edgeId });
       }
     }
+  }
+
+  // ---- layer order --------------------------------------------------------
+  // We extract the order of managed layers currently in AE, and the desired order.
+  // We only care about layer-type nodes (solids, nulls, shapes, etc) since effects/expressions aren't AE layers.
+  const layerNodes = Object.values(graph.nodes).filter(n => n.kind !== 'expression' && n.kind !== 'effect');
+  
+  // Desired sequence of tags from top (smallest index) to bottom
+  const desiredTags = layerNodes
+    .sort((a, b) => a.order - b.order)
+    .map(n => n.id)
+    .filter(id => resolved.has(id)); // only reorder layers that actually exist this pass
+
+  // Current sequence of tags in AE (compState.layers is top-to-bottom)
+  const currentTags = compState.layers
+    .map(l => {
+      const tag = l.comment.trim().replace(/^ntl:/, '');
+      return resolved.has(tag) && l === resolved.get(tag) && graph.nodes[tag] ? tag : null;
+    })
+    .filter(tag => tag !== null);
+
+  // If the relative order of managed layers doesn't match the desired order, emit a reorder op.
+  const currentTagsStr = currentTags.join(',');
+  const desiredTagsStr = desiredTags.join(',');
+  if (currentTagsStr !== desiredTagsStr && desiredTags.length > 0) {
+    ops.push({ op: 'reorder', tags: desiredTags, current: currentTags });
   }
 
   return {
