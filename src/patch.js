@@ -16,6 +16,8 @@ const APPLY_FN = 'NTL_ApplyPatch';
 export const SUPPORTED_OPS = new Set([
   'createLayer', 'deleteLayer', 'setName', 'setProp',
   'setParent', 'setExpression', 'clearExpression',
+  'addEffect', 'removeEffect', 'setEffect', 'setBlendMode',
+  'linkEffectToHost',
 ]);
 
 export class PatchError extends Error {

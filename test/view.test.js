@@ -317,3 +317,41 @@ test('CONTROL: a view that kept positions out of the model loses them', () => {
   assert.deepEqual(toFlowNodes(panelOnly)[0].position, { x: 0, y: 0 },
     'every node stacked at the origin - the arrangement the user spent longest on, gone');
 });
+
+// ---- M2: effects and blend modes -------------------------------------------
+
+test('effects and blend mode are exposed in toFlowNodes', () => {
+  const graph = createGraph();
+  addNode(graph, {
+    id: 'a',
+    name: 'A',
+    kind: 'solid',
+    blendMode: 'multiply',
+    label: 12,
+    props: {},
+    effects: [
+      { matchName: 'ADBE Fill', params: { 'ADBE Fill-0002': [1, 0, 0, 1] } }
+    ]
+  });
+
+  const nodes = toFlowNodes(graph);
+  assert.equal(nodes.length, 1);
+  const n = nodes[0];
+  
+  assert.equal(n.data.blendMode, 'multiply');
+  assert.equal(n.data.label, 12);
+  assert.equal(n.data.labelColor, '#f1c232'); // Gold for label 12
+  
+  assert.equal(n.data.effects.length, 1);
+  const fx = n.data.effects[0];
+  assert.equal(fx.matchName, 'ADBE Fill');
+  assert.equal(fx.name, 'ADBE Fill');
+  assert.deepEqual(fx.params, { 'ADBE Fill-0002': [1, 0, 0, 1] });
+  
+  // M2 effect ports should be generated
+  assert.equal(fx.ports.length, 1);
+  assert.equal(fx.ports[0], 'ADBE Fill-0002');
+  
+  // Verify propFromHandle works for effects
+  assert.equal(propFromHandle('in:effect.1.ADBE Fill-0002'), 'effect.1.ADBE Fill-0002');
+});

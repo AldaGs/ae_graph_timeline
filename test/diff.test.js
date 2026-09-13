@@ -213,3 +213,71 @@ test('creates precede the parenting that depends on them', () => {
   assert.ok(create >= 0 && parent >= 0);
   assert.ok(create < parent);
 });
+
+// ---- M2: effects and blend modes -------------------------------------------
+
+test('effects are added, removed, and params diffed', () => {
+  const g = createGraph();
+  addNode(g, { id: 'n1', name: 'n1', props: {} });
+  
+  // M3: effects are separate nodes connected via flow edges
+  addNode(g, { 
+    id: 'fx1', 
+    kind: 'effect', 
+    matchName: 'ADBE Fill', 
+    props: { 'ADBE Fill-0002': [1, 0, 0, 1] } 
+  });
+  addNode(g, { 
+    id: 'fx2', 
+    kind: 'effect', 
+    matchName: 'ADBE Gaussian Blur 2', 
+    props: { 'ADBE Gaussian Blur 2-0001': 10 } 
+  });
+
+  // Chain them: n1 -> fx1 -> fx2
+  g.edges['e1'] = { id: 'e1', from: 'n1', to: 'fx1', kind: 'flow' };
+  g.edges['e2'] = { id: 'e2', from: 'fx1', to: 'fx2', kind: 'flow' };
+
+  const r = diff(g, comp([
+    managed('n1', {
+      name: 'n1',
+      effects: [
+        { matchName: 'ADBE Fill', params: { 'ADBE Fill-0002': [0, 1, 0, 1] } }, // color differs
+        { matchName: 'ADBE Tint', params: {} }, // unexpected effect, but within wantEffects length so it's a mismatch
+        { matchName: 'ADBE Invert', params: {} } // 3rd effect, triggers extraEffects warning
+      ]
+    })
+  ]));
+
+  assert.equal(r.ops.length, 4);
+  
+  assert.equal(r.ops[0].op, 'createLayer');
+  assert.equal(r.ops[0].node, 'fx1');
+  assert.equal(r.ops[1].op, 'createLayer');
+  assert.equal(r.ops[1].node, 'fx2');
+  
+  assert.equal(r.ops[2].op, 'addEffect');
+  assert.equal(r.ops[2].index, 2);
+  assert.equal(r.ops[2].matchName, 'ADBE Gaussian Blur 2');
+  
+  assert.equal(r.ops[3].op, 'linkEffectToHost');
+  assert.equal(r.ops[3].effectIndex, 1);
+  assert.equal(r.ops[3].hostName, 'fx1');
+
+  // M2: extra effects are warned about, not removed
+  assert.equal(r.warnings.length, 1);
+  assert.equal(r.warnings[0].kind, 'extraEffects');
+});
+
+test('blend mode changes are diffed', () => {
+  const g = createGraph();
+  addNode(g, { id: 'n1', name: 'n1', props: {}, blendMode: 'multiply' });
+
+  const r = diff(g, comp([
+    managed('n1', { name: 'n1', blendMode: 'normal' })
+  ]));
+
+  assert.equal(r.ops.length, 1);
+  assert.equal(r.ops[0].op, 'setBlendMode');
+  assert.equal(r.ops[0].to, 'multiply');
+});

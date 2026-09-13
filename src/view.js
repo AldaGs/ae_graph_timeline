@@ -11,29 +11,43 @@
 // never holds state the graph does not have. The one exception is selection,
 // which is about what the user is looking at rather than what the comp contains.
 
-import { addEdge, moveNode } from './graph.js';
+import { addEdge, moveNode, LABEL_COLORS, KIND_DEFAULT_LABEL } from './graph.js';
 
 // What a node looks like on the canvas. A node is a layer, so it shows the two
 // things that decide what that layer IS - its name and its kind - and the
-// handful of transform values the graph currently owns. Effects and keyframes
-// are deliberately absent: AE keeps keyframes (S6), and effect parameters are
-// M2's work.
+// handful of transform values the graph currently owns. M2 adds effects (as
+// collapsible sections with their own parameter ports), blend mode, and AE
+// label colour.
 export function toFlowNodes(graph) {
   return Object.values(graph.nodes).map((node) => ({
     id: node.id,
-    type: 'ntlLayer',
+    type: node.kind === 'effect' ? 'ntlEffect' : (node.kind === 'expression' ? 'ntlExpression' : 'ntlLayer'),
     position: { x: node.ui?.x ?? 0, y: node.ui?.y ?? 0 },
     data: {
       name: node.name,
       kind: node.kind,
       parent: node.parent ?? null,
+      blendMode: node.blendMode || 'normal',
+      label: node.label ?? KIND_DEFAULT_LABEL[node.kind] ?? 0,
+      labelColor: LABEL_COLORS[node.label ?? KIND_DEFAULT_LABEL[node.kind] ?? 0] || null,
       // The inputs a node offers are exactly the properties the graph owns on
       // it, so a port list cannot drift from what the reconciler would write.
       ports: Object.keys(node.props).sort(),
       props: node.props,
+      matchName: node.matchName || null,
+      expression: node.expression || '',
       // An input driven by an edge is not the user's to type into: the
       // expression IS the value there (P1.2's rule, surfaced in the UI).
       driven: drivenProps(graph, node.id),
+      // M2 legacy: effects as an ordered stack. Still populated for backwards compat 
+      // with tests, but M3 UI uses standalone nodes.
+      effects: (node.effects || []).map((fx, i) => ({
+        index: i,
+        matchName: fx.matchName,
+        name: fx.name || fx.matchName,
+        params: fx.params || {},
+        ports: Object.keys(fx.params || {}).sort(),
+      })),
     },
   }));
 }

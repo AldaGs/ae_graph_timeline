@@ -37,10 +37,14 @@ const OP_ORDER = [
   'createLayer',
   'setName',
   'setProp',
+  'setBlendMode',
   'setEffect',
+  'addEffect',
+  'linkEffectToHost',
   'setParent',
   'setExpression',
   'reorder',
+  'removeEffect',
   'deleteLayer',
 ];
 
@@ -86,15 +90,48 @@ export function diff(graph, compState) {
     });
   }
 
+// Helper to flatten chained effect nodes into an array of effects for a layer node.
+function getFlattenedEffects(graph, startNodeId) {
+  const flowEdges = Object.values(graph.edges).filter((e) => e.kind === 'flow');
+  const outgoing = {};
+  for (const e of flowEdges) {
+    if (!outgoing[e.from]) outgoing[e.from] = [];
+    outgoing[e.from].push(e);
+  }
+  
+  const effects = [...(graph.nodes[startNodeId]?.effects || [])];
+  let curr = startNodeId;
+  while (outgoing[curr] && outgoing[curr].length > 0) {
+    const edge = outgoing[curr][0]; // MVP: assume linear chain
+    const nextNode = graph.nodes[edge.to];
+    if (nextNode && nextNode.kind === 'effect') {
+      effects.push({
+        matchName: nextNode.matchName,
+        name: nextNode.name,
+        hostId: nextNode.id,
+        hostName: nextNode.name,
+      });
+      curr = nextNode.id;
+    } else {
+      break;
+    }
+  }
+  return effects;
+}
+
   // ---- layers the graph wants that are not there --------------------------
   for (const node of Object.values(graph.nodes)) {
+    if (node.kind === 'expression') continue;
     if (resolved.has(node.id)) continue;
-    ops.push({ op: 'createLayer', node: node.id, kind: node.kind, name: node.name, props: node.props });
+    const kind = node.kind === 'effect' ? 'null' : node.kind;
+    const props = node.kind === 'effect' ? {} : node.props;
+    ops.push({ op: 'createLayer', node: node.id, kind, name: node.name, props });
   }
 
   // ---- layers we own that the graph no longer wants -----------------------
   for (const [nodeId, layer] of resolved) {
-    if (!graph.nodes[nodeId]) {
+    const node = graph.nodes[nodeId];
+    if (!node || node.kind === 'expression') {
       ops.push({ op: 'deleteLayer', node: nodeId, nativeId: layer.nativeId, name: layer.name });
     }
   }
@@ -103,6 +140,7 @@ export function diff(graph, compState) {
   const desired = desiredExpressions(graph);
 
   for (const node of Object.values(graph.nodes)) {
+    if (node.kind === 'expression') continue;
     const layer = resolved.get(node.id);
     if (!layer) continue; // just created; its props ride along on createLayer
 
@@ -130,6 +168,55 @@ export function diff(graph, compState) {
     const haveParent = layer.parentTag ?? null;
     if (wantParent !== haveParent) {
       ops.push({ op: 'setParent', node: node.id, from: haveParent, to: wantParent });
+    }
+
+    if (layer.blendMode !== undefined && layer.blendMode !== node.blendMode) {
+      ops.push({ op: 'setBlendMode', node: node.id, from: layer.blendMode, to: node.blendMode });
+    }
+
+    const wantEffects = node.kind === 'effect' 
+      ? [{ matchName: node.matchName, name: node.name, params: node.props }]
+      : getFlattenedEffects(graph, node.id);
+
+    const haveEffects = layer.effects || [];
+    for (let i = 0; i < wantEffects.length; i++) {
+      const wantEffect = wantEffects[i];
+      const haveEffect = haveEffects[i];
+      
+      if (!haveEffect || haveEffect.matchName !== wantEffect.matchName) {
+        ops.push({ op: 'addEffect', node: node.id, index: i + 1, matchName: wantEffect.matchName, name: wantEffect.name, params: wantEffect.params || {} });
+      } else if (wantEffect.hostId) {
+        // Shared effect! It should get its values from expressions linked to the host.
+        // We only check if there are params that could be linked. If it's empty, we don't bother yet.
+        const hostName = wantEffect.hostName;
+        let allLinked = true;
+        for (const param of Object.keys(haveEffect.params || {})) {
+           const expr = haveEffect.expressions?.[param] || '';
+           if (expr.indexOf(`thisComp.layer("${hostName}")`) === -1) {
+              allLinked = false; break;
+           }
+        }
+        // If they aren't fully linked, and we know there are params, link them!
+        if (!allLinked && Object.keys(haveEffect.params || {}).length > 0) {
+           ops.push({ op: 'linkEffectToHost', node: node.id, effectIndex: i + 1, hostName });
+        }
+      } else {
+        // Direct effect or Effect Node itself: just set values.
+        for (const [param, wantVal] of Object.entries(wantEffect.params || {})) {
+          const haveVal = haveEffect.params?.[param];
+          if (haveVal !== undefined && !valueEquals(haveVal, wantVal)) {
+            ops.push({ op: 'setEffect', node: node.id, index: i + 1, param, from: haveVal, to: wantVal });
+          }
+        }
+      }
+    }
+
+    if (haveEffects.length > wantEffects.length) {
+      warnings.push({
+        kind: 'extraEffects',
+        node: node.id,
+        message: `layer has ${haveEffects.length} effects but graph only lists ${wantEffects.length}; extra effects are unmanaged and left alone`,
+      });
     }
   }
 

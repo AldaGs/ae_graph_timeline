@@ -96,18 +96,33 @@ function layerFacts(layer) {
     inPoint: layer.inPoint,
     outPoint: layer.outPoint,
     parentTag: layer.parentTag ?? null,
+    blendMode: layer.blendMode ?? 'normal', // M2
     props: { ...(layer.props || {}) },
     expressions: { ...(layer.expressions || {}) },
+    // M2: effects array, keeping only what matters for structural identity
+    effects: (layer.effects || []).map((fx) => ({
+      matchName: fx.matchName,
+      name: fx.name,
+      params: { ...(fx.params || {}) },
+      expressions: { ...(fx.expressions || {}) },
+    })),
   };
 }
+
+const canonicalEffects = (effects) =>
+  (effects || []).map((fx) => 
+    `${fx.matchName}|${fx.name}|${canonicalMap(fx.params)}|${canonicalMap(fx.expressions)}`
+  ).join('::');
 
 function layerDigest(f) {
   return fnv1a([
     f.nativeId, f.name, f.kind, f.enabled ? '1' : '0',
     canonicalValue(f.inPoint), canonicalValue(f.outPoint),
     f.parentTag ?? '~',
+    f.blendMode,
     canonicalMap(f.props),
     canonicalMap(f.expressions),
+    canonicalEffects(f.effects),
   ].join('|'));
 }
 
@@ -171,6 +186,7 @@ const FACT_KINDS = [
   ['inPoint', 'retimed'],
   ['outPoint', 'retimed'],
   ['parentTag', 'reparented'],
+  ['blendMode', 'blendModeChanged'],
 ];
 
 /**
@@ -242,6 +258,35 @@ export function compareSnapshots(before, after) {
           : `${nodeId}.${prop} expression changed`,
       });
     }
+
+    // Effect comparison: since they are ordered, we compare by index.
+    const wasFx = was.facts.effects || [];
+    const nowFx = now.facts.effects || [];
+    const maxFx = Math.max(wasFx.length, nowFx.length);
+    for (let i = 0; i < maxFx; i++) {
+      const w = wasFx[i];
+      const n = nowFx[i];
+      if (w && !n) {
+        // If it was a managed effect, it missing is blocking.
+        changes.push({ kind: 'effectRemoved', node: nodeId, index: i, matchName: w.matchName,
+          message: `${nodeId} lost effect "${w.matchName}" at index ${i}` });
+      } else if (!w && n) {
+        changes.push({ kind: 'effectAdded', node: nodeId, index: i, matchName: n.matchName,
+          message: `${nodeId} gained effect "${n.matchName}" at index ${i}` });
+      } else if (w && n && w.matchName !== n.matchName) {
+        changes.push({ kind: 'effectReplaced', node: nodeId, index: i, from: w.matchName, to: n.matchName,
+          message: `${nodeId} effect at index ${i} changed from "${w.matchName}" to "${n.matchName}"` });
+      } else if (w && n) {
+        // Same effect matchName, check params
+        for (const param of union(w.params, n.params)) {
+          const pFrom = w.params[param];
+          const pTo = n.params[param];
+          if (canonicalValue(pFrom) === canonicalValue(pTo)) continue;
+          changes.push({ kind: 'effectParamChanged', node: nodeId, index: i, param, from: pFrom, to: pTo,
+            message: `${nodeId} effect ${n.matchName} parameter "${param}" changed: ${canonicalValue(pFrom)} -> ${canonicalValue(pTo)}` });
+        }
+      }
+    }
   }
 
   for (const nodeId of Object.keys(after.layers)) {
@@ -274,7 +319,7 @@ function union(a, b) {
 // nudged, a layer they renamed - the next diff simply corrects, because the graph
 // is the source of truth. These five are different: each means an identity the
 // graph was holding is no longer the thing it thought it was.
-const BLOCKING = new Set(['compChanged', 'vanished', 'replaced', 'duplicated', 'edgeTakenOver']);
+const BLOCKING = new Set(['compChanged', 'vanished', 'replaced', 'duplicated', 'edgeTakenOver', 'effectRemoved', 'effectReplaced']);
 
 // The user's own layers are reported, never counted as drift. The reconciler does
 // not write to them, so their moving cannot invalidate a patch.
@@ -331,11 +376,36 @@ export function projectSnapshot(snap, ops, revision) {
       case 'setParent':
         if (entry) entry.facts.parentTag = op.to ?? null;
         break;
+      case 'setBlendMode':
+        if (entry) entry.facts.blendMode = op.to;
+        break;
       case 'setExpression':
         if (entry) entry.facts.expressions[op.prop] = op.text;
         break;
       case 'clearExpression':
         if (entry) delete entry.facts.expressions[op.prop];
+        break;
+      case 'addEffect':
+        if (entry) {
+          entry.facts.effects = entry.facts.effects || [];
+          entry.facts.effects.splice(op.index - 1, 0, {
+            matchName: op.matchName,
+            name: op.name,
+            params: { ...(op.params || {}) },
+            expressions: {}
+          });
+        }
+        break;
+      case 'removeEffect':
+        if (entry && entry.facts.effects) {
+          entry.facts.effects.splice(op.effectIndex - 1, 1);
+        }
+        break;
+      case 'setEffect':
+        if (entry && entry.facts.effects) {
+          const fx = entry.facts.effects[op.index - 1];
+          if (fx) fx.params[op.param] = op.to;
+        }
         break;
       default:
         // An op we cannot project would make the projection a lie, and the next

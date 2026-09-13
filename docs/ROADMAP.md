@@ -478,9 +478,9 @@ improvement on the layer stack; it does not yet replace the curve editor.
 
 | | Step | Owes |
 |---|---|---|
-| M1 | Canvas transplant from ExtendBlueNode, into the CEP panel | **IN PROGRESS** — `panel/`. React Flow over the P1 graph model, `src/view.js` translating between them (pure, 23 tests). Nodes, ports, expression edges, parenting, and a live handshake to the host. Owed: the panel confirmed running docked in AE, and node inspection/editing beyond name and kind. |
-| M2 | Node set: Source, Transform, Effect, Composite, **Relationship** (expressions as edges, per S6) | enough to build a simple shot |
-| M3 | Reconciler wired to the canvas, debounced | edit a node, AE updates |
+| M1 | Canvas transplant from ExtendBlueNode, into the CEP panel | **DONE** — `panel/`. React Flow over the P1 graph model, `src/view.js` translating between them (pure, 23 tests). Confirmed docked in AE. |
+| M2 | Node set: Source, Transform, Effect, Composite, **Relationship** (expressions as edges, per S6) | **DONE** — see `docs/M2.md`. Generic effects by matchName; blend mode as the composite node; AE label colours on cards. |
+| M3 | Reconciler wired to the canvas, debounced. Effect chaining & Expression nodes. | **DONE** — see `docs/M3.md`. |
 | M4 | Durable identity per S3: comment anchor + cached native id | close and reopen the project, duplicate a layer, precompose one — the graph still owns its layers and knows which copy is which |
 | M5 | Drift UX + capture-where-constant | a user edit to a constant input lands back in the graph; a computed input shows "driven by node X" instead |
 | M6 | Persistence: `.ntl`, schema-versioned | save, reload, reconcile against the existing comp without rebuilding |

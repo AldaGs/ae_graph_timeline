@@ -102,11 +102,15 @@ of false wake-ups.
 
 ## The panel
 
-**M1 is underway** — [`panel/`](panel/) is a React Flow canvas over the P1 graph
+**M1 is complete** — [`panel/`](panel/) is a React Flow canvas over the P1 graph
 model. A node is a layer; a blue wire is an expression edge; an amber dashed wire
 is parenting. It renders the graph and mutates it, and **does not write to After
 Effects yet** — that is M3, and the panel says so rather than looking connected
 while doing nothing.
+
+**M2 is complete** — expanding the vocabulary of the graph to be able to build a
+simple shot. The model, diff, patch, and canvas now understand AE's effect stack,
+blend modes, and label colours. See [`docs/M2.md`](docs/M2.md) for the tracking document.
 
 ```bash
 cd panel && npm install

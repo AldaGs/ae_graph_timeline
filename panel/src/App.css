@@ -105,6 +105,13 @@ button:disabled { opacity: 0.4; cursor: default; }
 .ntl-node-head.kind-null { background: #4a4438; }
 .ntl-node-head.kind-text { background: #423a4d; }
 .ntl-node-head.kind-shape { background: #38473d; }
+.ntl-node-head.kind-footage { background: #4a3b38; }
+.ntl-node-head.kind-precomp { background: #353e4d; }
+.ntl-node-head.kind-camera { background: #36474a; }
+.ntl-node-head.kind-light { background: #4a4836; }
+
+/* M2: AE label colour stripe on the left edge of the node header */
+.ntl-node-head { border-left: 4px solid transparent; }
 
 .ntl-node-name {
   font-weight: 600;
@@ -114,6 +121,16 @@ button:disabled { opacity: 0.4; cursor: default; }
   max-width: 150px;
 }
 .ntl-node-kind { margin-left: auto; color: var(--ntl-dim); font-size: 10px; }
+
+/* M2: blend mode badge, only shown when not Normal */
+.ntl-node-blend {
+  font-size: 9px;
+  color: var(--ntl-dim);
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 2px;
+  padding: 0 4px;
+  white-space: nowrap;
+}
 
 .ntl-row {
   position: relative;
@@ -131,6 +148,31 @@ button:disabled { opacity: 0.4; cursor: default; }
 .ntl-row-parent { border-bottom: 1px dashed var(--ntl-line); }
 .ntl-row-parent .ntl-row-label { color: var(--ntl-parent); }
 .ntl-row-empty { color: var(--ntl-dim); font-style: italic; }
+
+/* ----------------------------------------------------------- M2: effects */
+
+.ntl-effects {
+  border-top: 1px solid var(--ntl-line);
+  margin-top: 1px;
+}
+
+.ntl-effect-head {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  background: rgba(255, 255, 255, 0.03);
+  cursor: pointer;
+  user-select: none;
+  font-size: 10px;
+  color: var(--ntl-dim);
+}
+.ntl-effect-head:hover { background: rgba(255, 255, 255, 0.06); }
+.ntl-effect-toggle { font-size: 8px; width: 8px; }
+.ntl-effect-name { font-weight: 500; color: var(--ntl-text); }
+
+.ntl-row-effect { padding-left: 16px; }
+.ntl-row-effect .ntl-row-label { font-size: 10px; }
 
 .ntl-node-foot {
   border-radius: 0 0 4px 4px;
@@ -151,6 +193,8 @@ button:disabled { opacity: 0.4; cursor: default; }
 }
 .ntl-handle:hover { background: var(--ntl-edge); }
 .ntl-handle-parent { background: #5a4e36; border-color: var(--ntl-parent); }
+.ntl-handle-effect { background: #3d4a3d; border-color: #5a7a5a; }
+.ntl-handle-effect:hover { background: #6fbf73; }
 
 /* The minimap defaults to a white page; inside After Effects that is a torch in
    a dark room. */
@@ -181,3 +225,40 @@ button:disabled { opacity: 0.4; cursor: default; }
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+.ntl-context-menu {
+  position: fixed;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  z-index: 1000;
+  min-width: 140px;
+}
+
+.ntl-context-menu button {
+  background: transparent;
+  color: var(--fg);
+  border: none;
+  padding: 6px 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ntl-context-menu button:hover {
+  background: var(--sel);
+}
+
+.ntl-menu-group {
+  font-size: 10px;
+  text-transform: uppercase;
+  color: #888;
+  padding: 8px 12px 4px 12px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 2px;
+}
+
+.ntl-handle-flow { background: #bbb; border-radius: 0; width: 12px; height: 6px; }
+.ntl-handle-expr { background: #5b9dd9; border-radius: 0; width: 6px; height: 12px; }

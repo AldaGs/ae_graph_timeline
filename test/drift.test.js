@@ -332,7 +332,7 @@ test('a patch that created a layer earns a fresh read instead of a guess', () =>
 test('an op the projection does not know throws the baseline away', () => {
   // Silently ignoring it would make the baseline a lie, and the next compare
   // would report the gap as someone else's drift.
-  assert.equal(projectSnapshot(snapshot(base()), [{ op: 'setEffect', node: 'a' }], 11), null);
+  assert.equal(projectSnapshot(snapshot(base()), [{ op: 'reorder', node: 'a' }], 11), null);
 });
 
 test('a delete projects, because we know exactly what is gone', () => {
@@ -361,4 +361,46 @@ test('CONTROL: a guard that skips the compare passes nothing', () => {
   real.mark(base());
   assert.notEqual(real.inspect(gone).verdict, 'clean',
     'the real guard must disagree with the blind one, or these tests prove nothing');
+});
+
+// ---- M2: effects and blend modes -------------------------------------------
+
+test('drift guard detects effect and blend mode changes', () => {
+  const guard = createDriftGuard();
+  const state = base();
+  
+  // Base state
+  state.layers[0].blendMode = 'normal';
+  state.layers[0].effects = [
+    { matchName: 'ADBE Fill', name: 'Fill', params: { 'ADBE Fill-0002': [1, 0, 0, 1] } }
+  ];
+  guard.mark(state);
+  
+  // Change blend mode
+  const b1 = JSON.parse(JSON.stringify(state));
+  b1.revision++;
+  b1.layers[0].blendMode = 'multiply';
+  
+  const r1 = guard.inspect(b1);
+  assert.equal(r1.drifted, true);
+  assert.equal(r1.changes[0].kind, 'blendModeChanged');
+  
+  // Change effect param
+  const b2 = JSON.parse(JSON.stringify(state));
+  b2.revision++;
+  b2.layers[0].effects[0].params['ADBE Fill-0002'] = [0, 1, 0, 1];
+  
+  const r2 = guard.inspect(b2);
+  assert.equal(r2.drifted, true);
+  assert.equal(r2.changes[0].kind, 'effectParamChanged');
+  
+  // Remove effect (blocking)
+  const b3 = JSON.parse(JSON.stringify(state));
+  b3.revision++;
+  b3.layers[0].effects = [];
+  
+  const r3 = guard.inspect(b3);
+  assert.equal(r3.drifted, true);
+  assert.equal(r3.changes[0].kind, 'effectRemoved');
+  assert.ok(r3.blocking.some(c => c.kind === 'effectRemoved'), 'losing a managed effect is blocking drift');
 });

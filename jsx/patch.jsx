@@ -205,6 +205,128 @@ function ntlrOwnsExpression(text) {
     return first.length > NTLP_EXPR_TAG.length;
 }
 
+function ntlpSetEffect(ctx, op) {
+    var layer = ntlpLayer(ctx, op.node);
+    var parade = layer.property('ADBE Effect Parade');
+    if (!parade) throw ntlpFail('layer "' + layer.name + '" has no effect parade');
+    var effect = parade.property(op.index);
+    if (!effect) throw ntlpFail('no effect at index ' + op.index + ' on layer "' + layer.name + '"');
+    var p = effect.property(op.param);
+    if (!p) throw ntlpFail('effect ' + op.index + ' has no parameter "' + op.param + '"');
+    
+    ntlpWritable(p, op.node, 'effect.' + op.index + '.' + op.param);
+    var before = ntlrPlain(p.value);
+    p.setValue(op.to);
+    ctx.writes++;
+    return before === null ? null : { op: 'setEffect', node: op.node, index: op.index, param: op.param, to: before };
+}
+
+function ntlpAddEffect(ctx, op) {
+    var layer = ntlpLayer(ctx, op.node);
+    var parade = layer.property('ADBE Effect Parade');
+    if (!parade) throw ntlpFail('layer "' + layer.name + '" has no effect parade');
+    if (!parade.canAddProperty(op.matchName)) {
+        throw ntlpFail('cannot add effect "' + op.matchName + '" to layer "' + layer.name + '"');
+    }
+    var effect = parade.addProperty(op.matchName);
+    if (op.name) effect.name = op.name;
+    var newIndex = effect.propertyIndex;
+    ctx.writes++;
+    
+    if (op.params) {
+        for (var k in op.params) {
+            if (!op.params.hasOwnProperty(k)) continue;
+            var p = effect.property(k);
+            if (p) {
+                p.setValue(op.params[k]);
+                ctx.writes++;
+            }
+        }
+    }
+    return { op: 'removeEffect', node: op.node, index: newIndex };
+}
+
+function ntlpLinkEffectToHost(ctx, op) {
+    var layer = ntlpLayer(ctx, op.node);
+    var parade = layer.property('ADBE Effect Parade');
+    if (!parade) throw ntlpFail('layer "' + layer.name + '" has no effect parade');
+    var effect = parade.property(op.effectIndex);
+    if (!effect) throw ntlpFail('no effect at index ' + op.effectIndex + ' on layer "' + layer.name + '"');
+
+    var hostNameStr = String(op.hostName).split('\\').join('\\\\').split('"').join('\\"');
+    var baseExpr = 'thisComp.layer("' + hostNameStr + '").effect(1)';
+
+    for (var i = 1; i <= effect.numProperties; i++) {
+        var p = effect.property(i);
+        if (p && p.propertyType === PropertyType.PROPERTY && p.canSetExpression) {
+            p.expression = baseExpr + '(' + i + ')';
+            ctx.writes++;
+        }
+    }
+    return null;
+}
+
+function ntlpRemoveEffect(ctx, op) {
+    var layer = ntlpLayer(ctx, op.node);
+    var parade = layer.property('ADBE Effect Parade');
+    if (!parade) throw ntlpFail('layer "' + layer.name + '" has no effect parade');
+    var effect = parade.property(op.index);
+    if (!effect) throw ntlpFail('no effect at index ' + op.index + ' on layer "' + layer.name + '"');
+    effect.remove();
+    ctx.writes++;
+    return null;
+}
+
+var NTLP_BLEND = {
+    'normal': 'NORMAL',
+    'dissolve': 'DISSOLVE',
+    'darken': 'DARKEN',
+    'multiply': 'MULTIPLY',
+    'colorBurn': 'COLOR_BURN',
+    'linearBurn': 'LINEAR_BURN',
+    'darkerColor': 'DARKER_COLOR',
+    'lighten': 'LIGHTEN',
+    'screen': 'SCREEN',
+    'colorDodge': 'COLOR_DODGE',
+    'linearDodge': 'LINEAR_DODGE',
+    'lighterColor': 'LIGHTER_COLOR',
+    'overlay': 'OVERLAY',
+    'softLight': 'SOFT_LIGHT',
+    'hardLight': 'HARD_LIGHT',
+    'vividLight': 'VIVID_LIGHT',
+    'linearLight': 'LINEAR_LIGHT',
+    'pinLight': 'PIN_LIGHT',
+    'hardMix': 'HARD_MIX',
+    'difference': 'DIFFERENCE',
+    'exclusion': 'EXCLUSION',
+    'subtract': 'SUBTRACT',
+    'divide': 'DIVIDE',
+    'hue': 'HUE',
+    'saturation': 'SATURATION',
+    'color': 'COLOR',
+    'luminosity': 'LUMINOSITY'
+};
+
+function ntlpSetBlendMode(ctx, op) {
+    var layer = ntlpLayer(ctx, op.node);
+    var constantName = NTLP_BLEND[op.to];
+    if (!constantName) throw ntlpFail('unknown blend mode "' + op.to + '"');
+    
+    var oldEnum = layer.blendingMode;
+    var oldStr = 'normal';
+    for (var k in NTLP_BLEND) {
+        if (!NTLP_BLEND.hasOwnProperty(k)) continue;
+        if (BlendingMode[NTLP_BLEND[k]] === oldEnum) {
+            oldStr = k;
+            break;
+        }
+    }
+    
+    layer.blendingMode = BlendingMode[constantName];
+    ctx.writes++;
+    return { op: 'setBlendMode', node: op.node, to: oldStr };
+}
+
 // An op this build does not implement must SAY so. Silently ignoring it would
 // let the diff go on emitting it forever while the comp never changes - a loop
 // that looks like drift.
@@ -217,7 +339,11 @@ function ntlpApplyOne(ctx, op) {
         case 'setParent':       return ntlpSetParent(ctx, op);
         case 'setExpression':   return ntlpSetExpression(ctx, op);
         case 'clearExpression': return ntlpClearExpression(ctx, op);
-        case 'setEffect':       throw ntlpFail('setEffect is not implemented in P1');
+        case 'setEffect':       return ntlpSetEffect(ctx, op);
+        case 'addEffect':       return ntlpAddEffect(ctx, op);
+        case 'removeEffect':    return ntlpRemoveEffect(ctx, op);
+        case 'linkEffectToHost':return ntlpLinkEffectToHost(ctx, op);
+        case 'setBlendMode':    return ntlpSetBlendMode(ctx, op);
         case 'reorder':         throw ntlpFail('reorder is not implemented in P1');
     }
     throw ntlpFail('unknown op "' + String(op.op) + '"');

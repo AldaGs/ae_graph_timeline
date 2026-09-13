@@ -268,3 +268,37 @@ test('graph -> diff -> patch -> comp, and the second pass is clean', () => {
   assert.equal(second.warnings.length, 0);
   assert.equal(ae.undo.groups.length, 1, 'one gesture, one undo entry');
 });
+
+// ---- M2: effects and blend modes -------------------------------------------
+
+test('M2 patch ops apply effects and blend mode', () => {
+  const ae = makeAE();
+  ae.comp.add('Target', { comment: tagFor('a') });
+  
+  const ops = [
+    { op: 'setBlendMode', node: 'a', to: 'multiply' },
+    { op: 'addEffect', node: 'a', matchName: 'ADBE Fill', index: 1, name: 'My Fill', params: { 'ADBE Fill-0002': [1, 0, 0, 1] } },
+    { op: 'setEffect', node: 'a', index: 1, param: 'ADBE Fill-0002', to: [0, 1, 0, 1] },
+    { op: 'removeEffect', node: 'a', index: 1 }
+  ];
+  
+  let r = run(ae, [ops[0]]);
+  assert.equal(r.ok, true);
+  assert.equal(ae.comp.byTag('a').blendingMode, ae.ctx.BlendingMode.MULTIPLY);
+  
+  r = run(ae, [ops[1]]);
+  assert.equal(r.ok, true);
+  let fx = ae.comp.byTag('a').property('ADBE Effect Parade').property(1);
+  assert.equal(fx.matchName, 'ADBE Fill');
+  assert.equal(fx.name, 'My Fill');
+  // the mock array value isn't deepEqual-friendly when returned via value, let's just check JSON
+  assert.equal(JSON.stringify(fx.property('ADBE Fill-0002').value), JSON.stringify([1, 0, 0, 1]));
+  
+  r = run(ae, [ops[2]]);
+  assert.equal(r.ok, true);
+  assert.equal(JSON.stringify(fx.property('ADBE Fill-0002').value), JSON.stringify([0, 1, 0, 1]));
+  
+  r = run(ae, [ops[3]]);
+  assert.equal(r.ok, true);
+  assert.equal(ae.comp.byTag('a').property('ADBE Effect Parade').numProperties, 0);
+});

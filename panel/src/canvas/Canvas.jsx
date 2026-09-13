@@ -26,16 +26,22 @@ import ReactFlow, {
 import 'reactflow/dist/style.css';
 
 import LayerNode from './LayerNode.jsx';
+import EffectNode from './EffectNode.jsx';
+import ExpressionNode from './ExpressionNode.jsx';
 import {
   toFlowNodes, toFlowEdges, toParentEdges,
   connect, disconnect, removeNode, ViewError,
 } from '../../../src/view.js';
-import { moveNode } from '../../../src/graph.js';
+import { moveNode, setNodeExpression } from '../../../src/graph.js';
 
 // Defined once, outside the component. A fresh object here would tell React Flow
 // its node types changed on every render, and it re-mounts every node when they
 // do - which looks exactly like the flicker this file is about.
-const nodeTypes = { ntlLayer: LayerNode };
+const nodeTypes = { 
+  ntlLayer: LayerNode,
+  ntlEffect: EffectNode,
+  ntlExpression: ExpressionNode
+};
 
 const EXPRESSION_EDGE = { stroke: '#5b9dd9', strokeWidth: 2 };
 const PARENT_EDGE = { stroke: '#c8a45c', strokeWidth: 2, strokeDasharray: '6 4' };
@@ -45,16 +51,28 @@ const wiresOf = (graph) => [
   ...toParentEdges(graph).map((e) => ({ ...e, type: 'default', style: PARENT_EDGE })),
 ];
 
-export default function Canvas({ graph, version, onChanged, onError, onSelect }) {
+export default function Canvas({ graph, version, onChanged, onError, onSelect, onPaneContextMenu, onGestureStart, onGestureEnd }) {
   const [nodes, setNodes, onNodesChange] = useNodesState(() => toFlowNodes(graph));
   const [edges, setEdges, onEdgesChange] = useEdgesState(() => wiresOf(graph));
 
   // Re-seeded only when the GRAPH changed - a node added, a wire drawn, a rename.
   // Never during a drag, because a drag does not bump the version.
   useEffect(() => {
-    setNodes(toFlowNodes(graph));
+    const freshNodes = toFlowNodes(graph).map(n => ({
+      ...n,
+      data: {
+        ...n.data,
+        onExpressionChange: (expr) => {
+          setNodeExpression(graph, n.id, expr);
+          onChanged?.({ structural: false, moved: false });
+        },
+        onExpressionFocus: onGestureStart,
+        onExpressionBlur: onGestureEnd
+      }
+    }));
+    setNodes(freshNodes);
     setEdges(wiresOf(graph));
-  }, [graph, version, setNodes, setEdges]);
+  }, [graph, version, setNodes, setEdges, onChanged, onGestureStart, onGestureEnd]);
 
   const guard = useCallback((fn) => {
     // A refusal from the view layer is a sentence for the user, not a crash:
@@ -79,31 +97,33 @@ export default function Canvas({ graph, version, onChanged, onError, onSelect })
     if (structural) onChanged?.({ structural: true, moved: false });
   }, [graph, onNodesChange, onChanged]);
 
+  const handleNodeDragStart = useCallback(() => {
+    onGestureStart?.();
+  }, [onGestureStart]);
+
   // The end of the gesture. Every node that moved is written to the model at
   // once, because a multi-selection drags together.
   const handleNodeDragStop = useCallback((_event, _node, dragged) => {
-    const moved = dragged?.length ? dragged : (_node ? [_node] : []);
-    for (const n of moved) moveNode(graph, n.id, n.position.x, n.position.y);
-    // Reported, but with structural false: where a node sits is a fact about the
-    // drawing, and it must never mark the comp dirty or reach After Effects.
-    if (moved.length) onChanged?.({ structural: false, moved: true });
-  }, [graph, onChanged]);
+    // If it didn't move, it wasn't a drag, just a click.
+    if (dragged.length === 0) return;
+    for (const n of dragged) {
+      moveNode(graph, n.id, n.position.x, n.position.y);
+    }
+    onChanged?.({ structural: false, moved: true });
+    onGestureEnd?.();
+  }, [graph, onChanged, onGestureEnd]);
 
   const handleEdgesChange = useCallback((changes) => {
     onEdgesChange(changes);
     let structural = false;
     for (const change of changes) {
-      if (change.type !== 'remove') continue;
-      if (disconnect(graph, change.id)) structural = true;
+      if (change.type === 'remove' && disconnect(graph, change.id)) structural = true;
     }
     if (structural) onChanged?.({ structural: true, moved: false });
   }, [graph, onEdgesChange, onChanged]);
 
   const handleConnect = useCallback((connection) => {
     const result = guard(() => connect(graph, connection));
-    // No edge is pushed into React Flow here. The graph took the wire, the
-    // version bumps, and the effect above re-seeds - so what is drawn is what the
-    // model holds, rather than a wire the canvas invented and the model refused.
     if (result) onChanged?.({ structural: true, moved: false, what: result });
   }, [graph, guard, onChanged]);
 
@@ -118,10 +138,12 @@ export default function Canvas({ graph, version, onChanged, onError, onSelect })
         edges={edges}
         nodeTypes={nodeTypes}
         onNodesChange={handleNodesChange}
+        onNodeDragStart={handleNodeDragStart}
         onNodeDragStop={handleNodeDragStop}
         onEdgesChange={handleEdgesChange}
         onConnect={handleConnect}
         onSelectionChange={handleSelectionChange}
+        onPaneContextMenu={onPaneContextMenu}
         // Deleting is destructive and reaches the comp, so it is a deliberate
         // keystroke rather than something a stray Backspace can do.
         deleteKeyCode={['Delete']}

@@ -34,6 +34,7 @@ const inRealm = (v) => (Array.isArray(v) ? realmArray.from(v) : v);
 class FakeProperty {
   constructor(name, value, over = {}) {
     this.name = name;
+    this.matchName = name;
     this._value = inRealm(value);
     this.numKeys = 0;
     this.canSetExpression = true;
@@ -73,6 +74,48 @@ class FakeGroup {
   property(matchName) { return this.props[matchName] ?? null; }
 }
 
+class FakeEffectParade {
+  constructor(layer) {
+    this.layer = layer;
+    this.effects = [];
+  }
+  get numProperties() { return this.effects.length; }
+  property(i) { return this.effects[i - 1] ?? null; }
+  canAddProperty(matchName) { return true; }
+  addProperty(matchName) {
+    const effect = new FakeEffect(this, matchName);
+    this.effects.push(effect);
+    if (this.layer.comp) this.layer.comp.project.revision++;
+    return effect;
+  }
+}
+
+class FakeEffect {
+  constructor(parade, matchName) {
+    this.parade = parade;
+    this.matchName = matchName;
+    this.name = matchName;
+    this.props = [];
+  }
+  get index() { return this.parade.effects.indexOf(this) + 1; }
+  get numProperties() { return this.props.length; }
+  property(key) {
+    if (typeof key === 'number') return this.props[key - 1] ?? null;
+    let prop = this.props.find(p => p.matchName === key);
+    if (!prop) {
+      prop = new FakeProperty(key, 0);
+      prop.matchName = key;
+      prop.comp = this.parade.layer.comp;
+      this.props.push(prop);
+    }
+    return prop;
+  }
+  remove() {
+    this.parade.effects = this.parade.effects.filter(e => e !== this);
+    if (this.parade.layer.comp) this.parade.layer.comp.project.revision++;
+  }
+}
+
 export class FakeLayer {
   constructor(comp, name, kind = 'solid') {
     this.id = nextId++;          // S3: unique, and it survives a rename
@@ -87,6 +130,9 @@ export class FakeLayer {
     this.inPoint = 0;
     this.outPoint = 5;
     this.removed = false;
+    this._blendingMode = 5220;
+    this._label = 0;
+    this.effectParade = new FakeEffectParade(this);
     this.transform = new FakeGroup({
       'ADBE Anchor Point': new FakeProperty('Anchor Point', [0, 0]),
       'ADBE Position': new FakeProperty('Position', [960, 540]),
@@ -96,13 +142,18 @@ export class FakeLayer {
     });
     for (const p of Object.values(this.transform.props)) p.comp = comp;
   }
+  get blendingMode() { return this._blendingMode; }
+  set blendingMode(v) { this._blendingMode = v; if (this.comp) this.comp.project.revision++; }
+  get label() { return this._label; }
+  set label(v) { this._label = v; if (this.comp) this.comp.project.revision++; }
+  
   // A position, not an identity - which is exactly why nothing in the reconciler
   // addresses a layer by it. Derived rather than stored so a remove() cannot
   // leave a stale one behind.
   get index() { return this.comp._layers.indexOf(this) + 1; }
   property(matchName) {
     if (matchName === 'ADBE Transform Group') return this.transform;
-    if (matchName === 'ADBE Effect Parade') return null;
+    if (matchName === 'ADBE Effect Parade') return this.effectParade;
     return null;
   }
   prop(name) {
@@ -181,6 +232,7 @@ export function makeAE() {
     TextLayer,
     ShapeLayer,
     PropertyType: { PROPERTY: 'PROPERTY', INDEXED_GROUP: 'INDEXED_GROUP', NAMED_GROUP: 'NAMED_GROUP' },
+    BlendingMode: { NORMAL: 5220, MULTIPLY: 5222, SCREEN: 5223, ADD: 5224, LIGHTEN: 5225 },
     Date,
     Error,
     isFinite,

@@ -53,7 +53,7 @@ export function createWriteLoop({
   guard = createDriftGuard(),
   includeEffects = false,
   maxStaleRetries = 2,
-  timer = { setTimeout: globalThis.setTimeout, clearTimeout: globalThis.clearTimeout },
+  timer = { setTimeout: (fn, ms) => setTimeout(fn, ms), clearTimeout: (id) => clearTimeout(id) },
 } = {}) {
   if (!host || typeof host.evalScript !== 'function') {
     throw new LoopError('the loop needs a host with evalScript()');
