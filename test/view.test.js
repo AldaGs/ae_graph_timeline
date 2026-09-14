@@ -13,7 +13,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  toFlow, toFlowNodes, toFlowEdges, toParentEdges, connect, disconnect,
+  toFlow, toFlowNodes, toFlowEdges, toParentEdges, connect, connectFlow,
+  connectExpression, connectParent, disconnect, handleMeta,
   applyNodeChanges, removeNode, renameNode, uniqueName, wouldCycle,
   propFromHandle, nextNodeId, nextEdgeId, portFromPath, pathFromPort, ViewError,
 } from '../src/view.js';
@@ -61,7 +62,7 @@ test('an edge lands on the input it drives, not on the node as a whole', () => {
   const [e] = toFlowEdges(graph);
   assert.equal(e.source, 'a');
   assert.equal(e.target, 'b');
-  assert.equal(e.targetHandle, 'in:position');
+  assert.equal(e.targetHandle, 'property:in:position');
 });
 
 // Every wire on the canvas has to end on a port that is actually there. React
@@ -74,8 +75,8 @@ test('an edge lands on the input it drives, not on the node as a whole', () => {
 function assertWiresLandOnPorts(graph) {
   const portsOf = new Map(toFlowNodes(graph).map((n) => [n.id, new Set(n.data.ports)]));
   for (const edge of [...toFlowEdges(graph), ...toParentEdges(graph)]) {
-    const source = portFromPath(propFromHandle(edge.sourceHandle));
-    const target = portFromPath(propFromHandle(edge.targetHandle));
+    const source = handleMeta(edge.sourceHandle)?.prop || handleMeta(edge.sourceHandle)?.type;
+    const target = handleMeta(edge.targetHandle)?.prop || handleMeta(edge.targetHandle)?.type;
     for (const [nodeId, port] of [[edge.source, source], [edge.target, target]]) {
       if (port === 'parent') continue;         // every node carries a parent port
       assert.ok(portsOf.get(nodeId)?.has(port),
@@ -87,9 +88,9 @@ function assertWiresLandOnPorts(graph) {
 test('every wire lands on a port that exists - React Flow drops the rest in silence', () => {
   const graph = graphOfTwo();
   connect(graph, { source: 'a', target: 'b',
-    sourceHandle: 'out:position', targetHandle: 'in:position' });
+    sourceHandle: 'property:out:position', targetHandle: 'property:in:position' });
   connect(graph, { source: 'a', target: 'b',
-    sourceHandle: 'out:opacity', targetHandle: 'in:opacity' });
+    sourceHandle: 'property:out:opacity', targetHandle: 'property:in:opacity' });
   graph.nodes.b.parent = 'a';
 
   assertWiresLandOnPorts(graph);
@@ -99,7 +100,7 @@ test('every wire lands on a port that exists - React Flow drops the rest in sile
   const [edge] = toFlowEdges(graph);
   assert.equal(graph.edges[edge.id].fromProp, '.transform.position',
     'the model keeps the path the expression body needs');
-  assert.equal(edge.sourceHandle, 'out:position',
+  assert.equal(edge.sourceHandle, 'property:out:position',
     'and the canvas gets the port the node actually renders');
 });
 
@@ -184,8 +185,8 @@ test('removing a node that is not there changes nothing and says so', () => {
 test('a wire between two inputs becomes an expression edge', () => {
   const graph = graphOfTwo();
   const r = connect(graph, { source: 'a', target: 'b',
-    sourceHandle: 'out:position', targetHandle: 'in:position' });
-  assert.equal(r.kind, 'edge');
+    sourceHandle: 'property:out:position', targetHandle: 'property:in:position' });
+  assert.equal(r.kind, 'expression');
   const edge = graph.edges[r.edge];
   assert.equal(edge.from, 'a');
   assert.equal(edge.toProp, 'position');
@@ -202,15 +203,62 @@ test('a second wire onto one input replaces the first - a property holds one exp
   const graph = graphOfTwo();
   addNode(graph, { id: 'c', name: 'Third', props: { position: [0, 0] } });
   const first = connect(graph, { source: 'a', target: 'b',
-    sourceHandle: 'out:position', targetHandle: 'in:position' });
+    sourceHandle: 'property:out:position', targetHandle: 'property:in:position' });
   const second = connect(graph, { source: 'c', target: 'b',
-    sourceHandle: 'out:position', targetHandle: 'in:position' });
+    sourceHandle: 'property:out:position', targetHandle: 'property:in:position' });
 
   assert.deepEqual(second.replaced, [first.edge]);
   assert.equal(Object.keys(graph.edges).length, 1);
   // Left to stand, the two edges would be the conflict diff() warns about -
   // which is a worse thing to hand a user than a wire that visibly moved.
   assert.equal(diff(graph, compOf(graph)).warnings.length, 0);
+});
+
+test('typed expression output connects only to a property input', () => {
+  const graph = graphOfTwo();
+  addNode(graph, { id: 'expr', kind: 'expression', name: 'Expression', expression: 'time;' });
+  const result = connectExpression(graph, {
+    source: 'expr', target: 'b', sourceHandle: 'expression:out', targetHandle: 'property:in:opacity',
+  });
+  assert.equal(result.kind, 'expression');
+  assert.equal(graph.edges[result.edge].fromProp, 'expression');
+  assert.throws(() => connectExpression(graph, {
+    source: 'expr', target: 'b', sourceHandle: 'expression:out', targetHandle: 'flow:in',
+  }), ViewError);
+});
+
+test('layer to effect to effect creates a linear typed flow', () => {
+  const graph = graphOfTwo();
+  addNode(graph, { id: 'fx1', kind: 'effect', name: 'Fill', matchName: 'ADBE Fill' });
+  addNode(graph, { id: 'fx2', kind: 'effect', name: 'Blur', matchName: 'ADBE Gaussian Blur 2' });
+  const first = connectFlow(graph, {
+    source: 'a', target: 'fx1', sourceHandle: 'flow:out', targetHandle: 'flow:in',
+  });
+  const second = connectFlow(graph, {
+    source: 'fx1', target: 'fx2', sourceHandle: 'flow:out', targetHandle: 'flow:in',
+  });
+  assert.deepEqual(Object.values(graph.edges).map((edge) => edge.kind), ['flow', 'flow']);
+  assert.equal(first.kind, 'flow');
+  assert.equal(second.kind, 'flow');
+});
+
+test('flow branching, cycles, missing match names, and cross-type wires are atomic refusals', () => {
+  const graph = graphOfTwo();
+  addNode(graph, { id: 'fx1', kind: 'effect', name: 'Fill', matchName: 'ADBE Fill' });
+  addNode(graph, { id: 'fx2', kind: 'effect', name: 'Blur', matchName: 'ADBE Gaussian Blur 2' });
+  addNode(graph, { id: 'bad', kind: 'effect', name: 'Unknown' });
+  connectFlow(graph, { source: 'a', target: 'fx1', sourceHandle: 'flow:out', targetHandle: 'flow:in' });
+  const before = JSON.stringify(graph);
+  const rejected = [
+    { source: 'a', target: 'fx2', sourceHandle: 'flow:out', targetHandle: 'flow:in' },
+    { source: 'fx1', target: 'a', sourceHandle: 'flow:out', targetHandle: 'flow:in' },
+    { source: 'b', target: 'bad', sourceHandle: 'flow:out', targetHandle: 'flow:in' },
+    { source: 'b', target: 'fx2', sourceHandle: 'property:out:position', targetHandle: 'flow:in' },
+  ];
+  for (const connection of rejected) {
+    assert.throws(() => connect(graph, connection), ViewError);
+    assert.equal(JSON.stringify(graph), before, 'a rejected connection must not partially mutate the graph');
+  }
 });
 
 test('a parent wire sets the parent, and is not an edge', () => {
@@ -220,7 +268,7 @@ test('a parent wire sets the parent, and is not an edge', () => {
   const comp = compOf(graph);
 
   const r = connect(graph, { source: 'a', target: 'b',
-    sourceHandle: 'out:parent', targetHandle: 'in:parent' });
+    sourceHandle: 'parent:out', targetHandle: 'parent:in' });
   assert.equal(r.kind, 'parent');
   assert.equal(graph.nodes.b.parent, 'a');
   assert.equal(Object.keys(graph.edges).length, 0);
@@ -231,18 +279,18 @@ test('a parent wire sets the parent, and is not an edge', () => {
 test('a parent port cannot be wired to a property port', () => {
   const graph = graphOfTwo();
   assert.throws(() => connect(graph, { source: 'a', target: 'b',
-    sourceHandle: 'out:parent', targetHandle: 'in:position' }), ViewError);
+    sourceHandle: 'parent:out', targetHandle: 'property:in:position' }), ViewError);
 });
 
 test('a node cannot be wired to itself, and a parent loop is refused by name', () => {
   const graph = graphOfTwo();
   assert.throws(() => connect(graph, { source: 'a', target: 'a',
-    sourceHandle: 'out:position', targetHandle: 'in:position' }),
+    sourceHandle: 'property:out:position', targetHandle: 'property:in:position' }),
     (e) => e instanceof ViewError && /itself/.test(e.message));
 
   graph.nodes.b.parent = 'a';
   assert.throws(() => connect(graph, { source: 'b', target: 'a',
-    sourceHandle: 'out:parent', targetHandle: 'in:parent' }),
+    sourceHandle: 'parent:out', targetHandle: 'parent:in' }),
     (e) => e instanceof ViewError && /loop/.test(e.message));
 });
 
@@ -256,14 +304,14 @@ test('wouldCycle does not spin on a loop that is already there', () => {
 test('wiring to a node that does not exist is refused, not half-applied', () => {
   const graph = graphOfTwo();
   assert.throws(() => connect(graph, { source: 'ghost', target: 'b',
-    sourceHandle: 'out:position', targetHandle: 'in:position' }), ViewError);
+    sourceHandle: 'property:out:position', targetHandle: 'property:in:position' }), ViewError);
   assert.equal(Object.keys(graph.edges).length, 0);
 });
 
 test('cutting a wire removes the edge, or clears the parent', () => {
   const graph = graphOfTwo();
   const { edge } = connect(graph, { source: 'a', target: 'b',
-    sourceHandle: 'out:position', targetHandle: 'in:position' });
+    sourceHandle: 'property:out:position', targetHandle: 'property:in:position' });
   assert.equal(disconnect(graph, edge).kind, 'edge');
   assert.equal(Object.keys(graph.edges).length, 0);
 
@@ -340,7 +388,7 @@ test('effects and blend mode are exposed in toFlowNodes', () => {
   
   assert.equal(n.data.blendMode, 'multiply');
   assert.equal(n.data.label, 12);
-  assert.equal(n.data.labelColor, '#f1c232'); // Gold for label 12
+  assert.equal(n.data.labelColor, '#7a5233'); // Shared display palette: label 12
   
   assert.equal(n.data.effects.length, 1);
   const fx = n.data.effects[0];

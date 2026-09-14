@@ -5,7 +5,8 @@
   "type": "module",
   "description": "A node graph that replaces After Effects' layered timeline. The graph is the source of truth; AE renders.",
   "scripts": {
-    "test": "node --test test/diff.test.js test/reader.test.js test/patch.test.js test/drift.test.js test/loop.test.js test/view.test.js",
+    "test": "node --test test/*.test.js",
+    "benchmark": "node tools/benchmark.mjs",
     "preflight": "python tools/jsx_check.py jsx/common.jsx jsx/reader.jsx jsx/patch.jsx jsx/p1-check.jsx jsx/p1b-check.jsx",
     "cep:install": "node cep-spike/install.mjs"
   }

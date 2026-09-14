@@ -1,0 +1,49 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+
+import { addEdge, addNode, createGraph, tagFor } from '../src/graph.js';
+import { captureCompState, ReconcileError } from '../src/reconcile.js';
+
+const layer = (id, over = {}) => ({
+  nativeId: over.nativeId ?? id.charCodeAt(0), index: 1, name: id,
+  comment: tagFor(id), kind: 'solid', enabled: true, label: 1,
+  blendMode: 'normal', parentTag: null, props: { opacity: 100 },
+  expressions: {}, effects: [], ...over,
+});
+const comp = (layers) => ({ compId: 1, compName: 'Shot', revision: 2, layers });
+
+test('comp-wins captures constants, names, order, and deletion without mutating the input', () => {
+  const graph = createGraph('Shot');
+  addNode(graph, { id: 'a', name: 'Old A', props: { opacity: 100 } });
+  addNode(graph, { id: 'b', name: 'B', props: { opacity: 100 } });
+  const result = captureCompState(graph, comp([
+    layer('b', { index: 1, name: 'Renamed B', props: { opacity: 35 } }),
+  ])).graph;
+  assert.equal(graph.nodes.b.name, 'B', 'capture is transactional');
+  assert.equal(result.nodes.a, undefined);
+  assert.equal(result.nodes.b.name, 'Renamed B');
+  assert.equal(result.nodes.b.props.opacity, 35);
+  assert.equal(result.nodes.b.order, 1);
+});
+
+test('comp-wins removes a graph expression edge instead of capturing its evaluated value', () => {
+  const graph = createGraph('Shot');
+  addNode(graph, { id: 'a', name: 'A', props: { opacity: 100 } });
+  addNode(graph, { id: 'b', name: 'B', props: { opacity: 100 } });
+  addEdge(graph, { id: 'e1', from: 'a', fromProp: '.transform.opacity', to: 'b', toProp: 'opacity' });
+  const result = captureCompState(graph, comp([
+    layer('a'),
+    layer('b', { props: { opacity: 17 }, expressions: {} }),
+  ])).graph;
+  assert.equal(result.edges.e1, undefined);
+  assert.equal(result.nodes.b.props.opacity, 17, 'after the edge is removed, the AE value becomes the constant');
+});
+
+test('comp-wins refuses duplicate identities transactionally', () => {
+  const graph = createGraph('Shot');
+  addNode(graph, { id: 'a', name: 'A', props: { opacity: 100 } });
+  assert.throws(() => captureCompState(graph, comp([
+    layer('a', { nativeId: 1 }), layer('a', { nativeId: 2 }),
+  ])), (error) => error instanceof ReconcileError && /duplicated/.test(error.message));
+  assert.equal(graph.nodes.a.name, 'A');
+});

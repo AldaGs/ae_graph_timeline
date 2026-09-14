@@ -13,27 +13,38 @@
 
 const NO_HOST = 'CEP Not Found';
 
+// CEP does not guarantee useful replies when multiple evalScript calls overlap.
+// Keep one transport lane for startup reads, sync patches, pings, and identity
+// checks. A failed request is isolated so it cannot poison every later call.
+export function serializeEvalScript(dispatch) {
+  let tail = Promise.resolve();
+  return (source) => {
+    const request = tail.then(() => dispatch(source));
+    tail = request.catch(() => undefined);
+    return request;
+  };
+}
+
 export function createHost() {
   const cs = typeof window !== 'undefined' && window.CSInterface
     ? new window.CSInterface()
     : null;
 
   const connected = Boolean(cs && typeof window.__adobe_cep__ !== 'undefined');
+  const dispatch = (source) => {
+    if (!connected) return Promise.resolve(`${NO_HOST}: ${source}`);
+    return new Promise((resolve) => {
+      cs.evalScript(source, (reply) => resolve(typeof reply === 'string' ? reply : String(reply)));
+    });
+  };
+  const evalScript = serializeEvalScript(dispatch);
 
   return {
     connected,
     env: cs ? cs.getHostEnvironment() : null,
 
     evalScript(source) {
-      if (!connected) {
-        // The browser case: `npm run dev` outside After Effects. It is answered
-        // rather than thrown, so the panel renders and the canvas works - the
-        // canvas is the thing under development, and it does not need AE.
-        return Promise.resolve(`${NO_HOST}: ${source}`);
-      }
-      return new Promise((resolve) => {
-        cs.evalScript(source, (reply) => resolve(typeof reply === 'string' ? reply : String(reply)));
-      });
+      return evalScript(source);
     },
   };
 }

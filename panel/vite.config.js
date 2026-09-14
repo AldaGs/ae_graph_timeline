@@ -11,10 +11,8 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     emptyOutDir: true,
-    // The panel is read straight off disk by a browser engine with no source
-    // server, so a sourcemap is the difference between a stack trace and a
-    // minified one when something fails inside After Effects.
-    sourcemap: true,
+    // Opt in for local diagnosis; installed builds omit source maps.
+    sourcemap: process.env.NTL_SOURCEMAPS === '1',
   },
   server: { port: 5273 },
   resolve: {

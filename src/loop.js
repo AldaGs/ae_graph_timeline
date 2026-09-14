@@ -26,7 +26,7 @@ import { readCompCall, parseCompState, ReadError } from './reader.js';
 import { diff } from './diff.js';
 import { applyPatchCall, parseReceipt, rollbackCall, PatchError } from './patch.js';
 import { createDriftGuard, revisionCall, parseRevision, DriftError } from './drift.js';
-import { bindNativeId } from './graph.js';
+import { bindNativeId, nodeIdFromTag, desiredExpressions } from './graph.js';
 
 export class LoopError extends Error {
   constructor(message, detail) {
@@ -40,6 +40,7 @@ export class LoopError extends Error {
  * @param host        { evalScript(source) -> Promise<string> } - the CEP bridge
  * @param graph       the source of truth; mutate it, then call touch()
  * @param compName    null for the active comp
+ * @param compId      native identity of the comp inspected by the panel
  * @param debounceMs  how long after the last mutation a flush runs. 60 ms: S2c
  *                    measured the round trip at 1.2 ms, so this is chosen for
  *                    the user's hands, not for the transport.
@@ -50,10 +51,12 @@ export function createWriteLoop({
   host,
   graph,
   compName = null,
+  compId = null,
   debounceMs = 60,
   guard = createDriftGuard(),
   includeEffects = false,
   maxStaleRetries = 2,
+  observeAfterPatch = false,
   timer = { setTimeout: (fn, ms) => setTimeout(fn, ms), clearTimeout: (id) => clearTimeout(id) },
 } = {}) {
   if (!host || typeof host.evalScript !== 'function') {
@@ -97,13 +100,14 @@ export function createWriteLoop({
 
   const readComp = async () => {
     stats.reads++;
-    return parseCompState(await call(readCompCall({ compName, includeEffects })));
+    return parseCompState(await call(readCompCall({ compName, compId, includeEffects })));
   };
 
   // ------------------------------------------------------------------ one pass
 
   async function pass(label) {
     stats.passes++;
+    emit({ type: 'reading', label: label || 'Node Timeline' });
 
     const compState = await readComp();
 
@@ -149,8 +153,11 @@ export function createWriteLoop({
       return { status: 'clean', warnings };
     }
 
+    const parentProps = new Map(ops.filter((op) => op.op === 'setParent')
+      .map((op) => [op.node, JSON.stringify(graph.nodes[op.node]?.props)]));
     const source = applyPatchCall(ops, {
       compName,
+      compId,
       // The label is what the user reads in Edit > Undo, so it names the
       // gesture rather than the machinery.
       label: label || 'Node Timeline',
@@ -159,6 +166,7 @@ export function createWriteLoop({
 
     let receipt;
     try {
+      emit({ type: 'patching', label: label || 'Node Timeline', ops, warnings });
       receipt = parseReceipt(await call(source));
     } catch (e) {
       if (e instanceof PatchError && e.detail?.retryable) {
@@ -171,7 +179,7 @@ export function createWriteLoop({
       if (e instanceof PatchError) {
         // A patch that failed partway left the comp between two states. Roll it
         // back by re-applying the inverse; a script cannot undo its own patch.
-        const rollback = rollbackCall(e.detail, { compName });
+        const rollback = rollbackCall(e.detail, { compName, compId });
         let rolledBack = false;
         if (rollback) {
           try {
@@ -209,6 +217,24 @@ export function createWriteLoop({
     if (!guard.advance(ops, receipt.revision)) guard.forget();
 
     emit({ type: 'patched', label: label || 'Node Timeline', ops, receipt, warnings });
+    if (observeAfterPatch) {
+      const observed = await readComp();
+      const driven = desiredExpressions(graph);
+      for (const layer of observed.layers) {
+        const id = nodeIdFromTag(layer.comment);
+        const node = graph.nodes[id];
+        // Do not overwrite an edit made while the host was working.
+        if (!node || !parentProps.has(id) || JSON.stringify(node.props) !== parentProps.get(id)
+            || node.parent !== layer.parentTag) continue;
+        for (const prop of ['position', 'anchorPoint', 'scale', 'rotation']) {
+          if (layer.props[prop] !== undefined && !driven[`${id}|${prop}`]) {
+            node.props[prop] = layer.props[prop];
+          }
+        }
+      }
+      guard.mark(observed);
+      emit({ type: 'checkpoint', compState: observed });
+    }
     return { status: 'patched', receipt, ops, warnings };
   }
 
@@ -374,6 +400,7 @@ export function createWriteLoop({
         // project, or a selection. Adopt the revision so the next gate is cheap
         // again, and say nothing to the panel.
         guard.mark(compState);
+        emit({ type: 'observed', report, compState });
         return { status: 'spurious', revision, report };
       }
       stats.drifts++;
@@ -381,7 +408,7 @@ export function createWriteLoop({
         stats.refusals++;
         driftHold = report;
       }
-      emit({ type: 'drift', verdict: report.verdict, report });
+      emit({ type: 'drift', verdict: report.verdict, report, compState });
       return { status: 'drifted', revision, report };
     },
 
@@ -405,6 +432,15 @@ export function createWriteLoop({
       dirty = false;
       pendingLabel = null;
       if (timerHandle !== null) { timer.clearTimeout(timerHandle); timerHandle = null; }
+    },
+
+    /** Adopt a comp state after the panel has explicitly reconciled it. */
+    adoptCompState(compState) {
+      driftHold = null;
+      dirty = false;
+      pendingLabel = null;
+      if (timerHandle !== null) { timer.clearTimeout(timerHandle); timerHandle = null; }
+      return guard.mark(compState);
     },
 
     get state() {

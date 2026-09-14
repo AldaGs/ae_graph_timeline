@@ -14,7 +14,7 @@ function EffectNode({ id, data, selected }) {
 
   return (
     <div className={`ntl-node ntl-node-effect${selected ? ' is-selected' : ''}`}>
-      <Handle type="target" position={Position.Top} id="in:in" className="ntl-handle-flow" />
+      <Handle type="target" position={Position.Top} id="flow:in" className="ntl-handle-flow" aria-label="Effect flow input" />
       <header className="ntl-node-head kind-effect">
         <span className="ntl-node-name" title={matchName}>{name}</span>
         <span className="ntl-node-kind">effect</span>
@@ -26,7 +26,7 @@ function EffectNode({ id, data, selected }) {
             <Handle
               type="target"
               position={Position.Left}
-              id={`in:${port}`}
+              id={`property:in:${port}`}
               className="ntl-handle ntl-handle-effect"
             />
             <span className="ntl-row-label">{port}</span>
@@ -34,13 +34,13 @@ function EffectNode({ id, data, selected }) {
             <Handle
               type="source"
               position={Position.Right}
-              id={`out:${port}`}
+              id={`property:out:${port}`}
               className="ntl-handle ntl-handle-effect"
             />
           </div>
         ))}
       </div>
-      <Handle type="source" position={Position.Bottom} id="out:out" className="ntl-handle-flow" />
+      <Handle type="source" position={Position.Bottom} id="flow:out" className="ntl-handle-flow" aria-label="Effect flow output" />
     </div>
   );
 }

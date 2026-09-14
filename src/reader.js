@@ -11,6 +11,8 @@
 // quietly become a patch.
 
 const HOST_FN = 'NTL_ReadComp';
+const NEW_COMP_DIALOG_FN = 'NTL_ShowNewCompDialog';
+const ACTIVE_COMP_FN = 'NTL_ActiveComp';
 
 export class ReadError extends Error {
   constructor(message, detail) {
@@ -32,8 +34,50 @@ export function jsxStringLiteral(s) {
   return `"${body}"`;
 }
 
-export function readCompCall({ compName = null, includeEffects = false } = {}) {
-  return `${HOST_FN}(${jsxStringLiteral(compName)}, ${includeEffects ? 'true' : 'false'})`;
+export function readCompCall({ compName = null, compId = null, includeEffects = false } = {}) {
+  return `${HOST_FN}(${jsxStringLiteral(compName)}, ${includeEffects ? 'true' : 'false'}, ${compId ?? 'null'})`;
+}
+
+export const newCompDialogCall = () => `${NEW_COMP_DIALOG_FN}()`;
+export const activeCompCall = () => `${ACTIVE_COMP_FN}()`;
+
+export function parseActiveComp(jsonText) {
+  let payload;
+  try {
+    payload = JSON.parse(jsonText);
+  } catch {
+    throw new ReadError(`active comp check did not return JSON: "${String(jsonText).slice(0, 120)}"`);
+  }
+  if (payload?.ok !== true || typeof payload.active !== 'boolean') {
+    throw new ReadError(payload?.message || 'active comp check returned an invalid result', payload);
+  }
+  if (payload.active && (typeof payload.compName !== 'string' || !isFiniteNumber(payload.compId))) {
+    throw new ReadError('active comp check did not identify the composition', payload);
+  }
+  return payload;
+}
+
+export function classifyActiveComp(expected, active) {
+  if (!expected) return { status: 'untracked' };
+  if (!active?.active) return { status: 'missing', expected };
+  if (active.compId !== expected.compId) return { status: 'changed', expected, active };
+  return { status: 'same', expected, active };
+}
+
+export function parseNewCompDialog(jsonText) {
+  let payload;
+  try {
+    payload = JSON.parse(jsonText);
+  } catch {
+    throw new ReadError(`new comp dialog did not return JSON: "${String(jsonText).slice(0, 120)}"`);
+  }
+  if (payload?.ok !== true || typeof payload.created !== 'boolean') {
+    throw new ReadError(payload?.message || 'new comp dialog returned an invalid result', payload);
+  }
+  if (payload.created && (typeof payload.compName !== 'string' || !isFiniteNumber(payload.compId))) {
+    throw new ReadError('new comp dialog did not identify the created composition', payload);
+  }
+  return payload;
 }
 
 const isFiniteNumber = (v) => typeof v === 'number' && Number.isFinite(v);

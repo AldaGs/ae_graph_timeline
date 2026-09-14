@@ -22,6 +22,7 @@
 // is the pair of helpers that build the revision call and parse its reply.
 
 import { nodeIdFromTag, ownsExpression } from './graph.js';
+import { valueEquals } from './diff.js';
 
 const REVISION_FN = 'NTL_Revision';
 
@@ -69,9 +70,8 @@ export function fnv1a(text) {
   return (h >>> 0).toString(16).padStart(8, '0');
 }
 
-// A value's canonical text. Numbers are rounded to the same tolerance
-// valueEquals() uses (1e-6), or a float AE round-trips imperfectly would read as
-// drift on every single pass.
+// Stable digest text. Rounded digests are a fast candidate check, not numeric
+// equality: property comparisons also use valueEquals's relative tolerance.
 export function canonicalValue(v) {
   if (Array.isArray(v)) return `[${v.map(canonicalValue).join(',')}]`;
   if (typeof v === 'number') return Number.isFinite(v) ? v.toFixed(6) : 'nan';
@@ -238,7 +238,7 @@ export function compareSnapshots(before, after) {
     for (const prop of union(was.facts.props, now.facts.props)) {
       const from = was.facts.props[prop];
       const to = now.facts.props[prop];
-      if (canonicalValue(from) === canonicalValue(to)) continue;
+      if (valueEquals(from, to) || canonicalValue(from) === canonicalValue(to)) continue;
       changes.push({ kind: 'propChanged', node: nodeId, prop, from, to,
         message: `${nodeId}.${prop}: ${canonicalValue(from)} -> ${canonicalValue(to)}` });
     }

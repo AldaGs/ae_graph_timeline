@@ -16,6 +16,8 @@ import { makeAE } from './fake-ae.js';
 import { createWriteLoop, LoopError } from '../src/loop.js';
 import { createDriftGuard } from '../src/drift.js';
 import { createGraph, addNode, addEdge, tagFor } from '../src/graph.js';
+import { diff } from '../src/diff.js';
+import { serializeGraph, parseGraph } from '../src/persistence.js';
 
 // A clock the test owns. tick() runs every timer whose deadline has passed, so a
 // debounce that was restarted really does have to wait again.
@@ -70,6 +72,52 @@ function setup({ guard, debounceMs = 60, onDrift } = {}) {
 }
 
 const types = (events) => events.map((e) => e.type);
+
+test('parent compensation is captured so the next reorder writes no transforms', async () => {
+  const { ae, graph } = setup();
+  const child = ae.comp.byTag('b');
+  let parent = null;
+  Object.defineProperty(child, 'parent', {
+    get: () => parent,
+    set: (value) => { parent = value; child.prop('position').setValue([0, 0]); },
+  });
+  graph.nodes.b.props.position = [960, 540];
+  graph.nodes.b.parent = 'a';
+  const loop = createWriteLoop({ host: ae.host, graph, observeAfterPatch: true });
+  let observed;
+  loop.on((event) => { if (event.type === 'checkpoint') observed = event.compState; });
+  loop.touch();
+  await loop.flush();
+  assert.deepEqual(Array.from(graph.nodes.b.props.position), [0, 0]);
+  graph.nodes.b.order = 1;
+  graph.nodes.a.order = 2;
+  assert.deepEqual(diff(graph, observed).ops.map((op) => op.op), ['reorder']);
+  await loop.close();
+});
+
+test('solid then null checkpoints reopen without pending writes or an outdated baseline', async () => {
+  const ae = makeAE();
+  // Model AE creation at the TOP, rather than the fixture helper's append.
+  const add = ae.comp._add.bind(ae.comp);
+  ae.comp._add = (layer) => { add(layer); layer.moveToBeginning(); return layer; };
+  const graph = createGraph('Shot');
+  const loop = createWriteLoop({ host: ae.host, graph, observeAfterPatch: true });
+  let saved;
+  loop.on((event) => {
+    if (event.type === 'checkpoint') saved = serializeGraph(graph, { compId: 1 }, event.compState);
+  });
+  addNode(graph, { id: 'n1', kind: 'solid', props: { opacity: 100 } });
+  loop.touch();
+  await loop.flush();
+  addNode(graph, { id: 'n2', kind: 'null', props: {} });
+  loop.touch();
+  await loop.flush();
+  const reopened = parseGraph(saved);
+  assert.deepEqual(reopened.baseline.layers.map((layer) => layer.comment), ['ntl:n1', 'ntl:n2']);
+  assert.deepEqual(diff(reopened.graph, reopened.baseline).ops, []);
+  assert.equal(reopened.graph.nodes.n2.nativeId, ae.comp.byTag('n2').id);
+  await loop.close();
+});
 
 // ---- coalescing: the whole reason this file exists -------------------------
 
@@ -157,7 +205,7 @@ test('a pass with nothing to write opens no undo group at all', async () => {
   assert.equal(loop.stats.cleanPasses, 1);
   assert.equal(loop.stats.patches, 0);
   assert.deepEqual(ae.undo.groups, []);
-  assert.deepEqual(types(events), ['clean']);
+  assert.deepEqual(types(events), ['reading', 'clean']);
 });
 
 test('mutations arriving mid-patch get their own pass, not a race', async () => {
@@ -441,6 +489,27 @@ test('a listener that throws does not take the loop with it', async () => {
   loop.touch();
   await loop.flush();
   assert.equal(ae.comp.byTag('a').prop('opacity').value, 88);
+});
+
+test('the loop reports reading and patching before a successful patch', async () => {
+  const { graph, loop, events } = setup();
+  graph.nodes.a.props.opacity = 88;
+  loop.touch('Set opacity');
+  await loop.flush();
+  const lifecycle = events.map((event) => event.type)
+    .filter((type) => ['reading', 'patching', 'patched'].includes(type));
+  assert.deepEqual(lifecycle, ['reading', 'patching', 'patched']);
+});
+
+test('a first poll exposes its observed comp state for undo matching', async () => {
+  const { loop } = setup();
+  const events = [];
+  loop.on((event) => events.push(event));
+
+  const result = await loop.poll();
+  const observed = events.find((event) => event.type === 'observed');
+  assert.equal(result.status, 'spurious');
+  assert.equal(observed.compState.layers[0].name, 'Source');
 });
 
 test('a closed loop writes nothing and leaves no timer behind', async () => {

@@ -16,6 +16,7 @@ Effects.
 | [`docs/PLAN.md`](docs/PLAN.md) | the reasoning — the premise, the four walls, what is decided and why |
 | [`docs/SPIKES.md`](docs/SPIKES.md) | the evidence — every measurement, and what each does *not* cover |
 | [`docs/ROADMAP.md`](docs/ROADMAP.md) | the sequence — gates, POC, MVP |
+| [`docs/IMPLEMENTATION_PLAN.md`](docs/IMPLEMENTATION_PLAN.md) | the current hardening plan — safety, integration, persistence, UX, and performance |
 
 ## Where it stands
 
@@ -102,15 +103,27 @@ of false wake-ups.
 
 ## The panel
 
-**M1 is complete** — [`panel/`](panel/) is a React Flow canvas over the P1 graph
-model. A node is a layer; a blue wire is an expression edge; an amber dashed wire
-is parenting. It renders the graph and mutates it, and **does not write to After
-Effects yet** — that is M3, and the panel says so rather than looking connected
-while doing nothing.
+**M1–M3 are implemented** — [`panel/`](panel/) is a React Flow canvas over the P1
+graph model, with the reconciler connected to After Effects. A layer is a node;
+effect and expression nodes add compositing and relationships; blue wires carry
+flow/expression relationships and amber dashed wires carry parenting.
 
 **M2 is complete** — expanding the vocabulary of the graph to be able to build a
 simple shot. The model, diff, patch, and canvas now understand AE's effect stack,
 blend modes, and label colours. See [`docs/M2.md`](docs/M2.md) for the tracking document.
+
+**M4 code exists but is not yet safe to call complete.** Native
+layer IDs are captured after creation, duplicate tags are disambiguated, unique
+precompose replacements can re-bind, and the panel hydrates tagged layers on
+startup. Hydration is lossy until M6 and the current initial flush can clear
+graph-owned expressions or parenting that hydration did not reconstruct. See
+[`docs/M4.md`](docs/M4.md) and use only disposable or version-controlled project
+files until reload is made non-destructive and manually verified.
+
+The current UI also includes an outliner for visibility, label colour, and
+managed-layer order. The core reconciler is well covered, but the React/CEP
+integration is not yet covered by automated component tests; treat the panel as
+an in-development prototype rather than a production-safe editor.
 
 ```bash
 cd panel && npm install

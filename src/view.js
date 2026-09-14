@@ -19,6 +19,12 @@ import { addEdge, moveNode, LABEL_COLORS, KIND_DEFAULT_LABEL } from './graph.js'
 // collapsible sections with their own parameter ports), blend mode, and AE
 // label colour.
 export function toFlowNodes(graph) {
+  const drivenByNode = new Map();
+  for (const edge of Object.values(graph.edges)) {
+    if (edge.kind === 'flow') continue;
+    if (!drivenByNode.has(edge.to)) drivenByNode.set(edge.to, {});
+    drivenByNode.get(edge.to)[edge.toProp] = edge.id;
+  }
   return Object.values(graph.nodes).map((node) => ({
     id: node.id,
     type: node.kind === 'effect' ? 'ntlEffect' : (node.kind === 'expression' ? 'ntlExpression' : 'ntlLayer'),
@@ -38,9 +44,8 @@ export function toFlowNodes(graph) {
       expression: node.expression || '',
       // An input driven by an edge is not the user's to type into: the
       // expression IS the value there (P1.2's rule, surfaced in the UI).
-      driven: drivenProps(graph, node.id),
-      // M2 legacy: effects as an ordered stack. Still populated for backwards compat 
-      // with tests, but M3 UI uses standalone nodes.
+      driven: drivenByNode.get(node.id) || {},
+      // Both inline effect stacks and standalone effect nodes are supported.
       effects: (node.effects || []).map((fx, i) => ({
         index: i,
         matchName: fx.matchName,
@@ -56,6 +61,7 @@ export function toFlowNodes(graph) {
 export function drivenProps(graph, nodeId) {
   const out = {};
   for (const edge of Object.values(graph.edges)) {
+    if (edge.kind === 'flow') continue;
     if (edge.to !== nodeId) continue;
     out[edge.toProp] = edge.id;
   }
@@ -84,9 +90,16 @@ export function toFlowEdges(graph) {
     target: edge.to,
     // Ports are named after the property, so an edge lands on the input it
     // actually drives rather than on the node as a whole.
-    sourceHandle: `out:${portFromPath(edge.fromProp)}`,
-    targetHandle: `in:${edge.toProp}`,
+    sourceHandle: edge.kind === 'flow'
+      ? 'flow:out'
+      : (graph.nodes[edge.from]?.kind === 'expression'
+        ? 'expression:out'
+        : `property:out:${portFromPath(edge.fromProp)}`),
+    targetHandle: edge.kind === 'flow' ? 'flow:in' : `property:in:${edge.toProp}`,
     type: 'ntlEdge',
+    ariaLabel: edge.kind === 'flow'
+      ? `Effect flow from ${edge.from} to ${edge.to}`
+      : `Expression from ${edge.from} to ${edge.to}.${edge.toProp}`,
     data: { fromProp: edge.fromProp, toProp: edge.toProp, kind: edge.kind },
   }));
 }
@@ -111,9 +124,10 @@ export function toParentEdges(graph) {
       id: `parent:${node.id}`,
       source: node.parent,
       target: node.id,
-      sourceHandle: `out:${PARENT_HANDLE}`,
-      targetHandle: `in:${PARENT_HANDLE}`,
+      sourceHandle: 'parent:out',
+      targetHandle: 'parent:in',
       type: 'ntlParentEdge',
+      ariaLabel: `Parent relationship from ${node.parent} to ${node.id}`,
       data: { parent: true },
     });
   }
@@ -136,6 +150,116 @@ export const propFromHandle = (handle) => {
   return cut === -1 ? null : handle.slice(cut + 1) || null;
 };
 
+export function handleMeta(handle) {
+  if (typeof handle !== 'string') return null;
+  const parts = handle.split(':');
+  if (parts.length === 2 && ['flow', 'expression', 'parent'].includes(parts[0])
+      && ['in', 'out'].includes(parts[1])) {
+    return { type: parts[0], direction: parts[1], prop: null };
+  }
+  if (parts.length >= 3 && parts[0] === 'property'
+      && ['in', 'out'].includes(parts[1]) && parts.slice(2).join(':')) {
+    return { type: 'property', direction: parts[1], prop: parts.slice(2).join(':') };
+  }
+  return null;
+}
+
+function validateEnds(graph, connection) {
+  const { source, target } = connection;
+  if (!graph.nodes[source]) throw new ViewError(`unknown source node "${source}"`);
+  if (!graph.nodes[target]) throw new ViewError(`unknown target node "${target}"`);
+  if (source === target) throw new ViewError('a node cannot be wired to itself');
+  const from = handleMeta(connection.sourceHandle);
+  const to = handleMeta(connection.targetHandle);
+  if (!from || !to || from.direction !== 'out' || to.direction !== 'in') {
+    throw new ViewError('a wire must run from an output port to an input port');
+  }
+  return { from, to };
+}
+
+function flowWouldCycle(graph, source, target) {
+  const outgoing = new Map();
+  for (const edge of Object.values(graph.edges)) {
+    if (edge.kind !== 'flow') continue;
+    if (!outgoing.has(edge.from)) outgoing.set(edge.from, []);
+    outgoing.get(edge.from).push(edge.to);
+  }
+  const pending = [target];
+  const seen = new Set();
+  while (pending.length) {
+    const at = pending.pop();
+    if (at === source) return true;
+    if (seen.has(at)) continue;
+    seen.add(at);
+    pending.push(...(outgoing.get(at) || []));
+  }
+  return false;
+}
+
+export function connectFlow(graph, connection, { edgeId } = {}) {
+  const { from, to } = validateEnds(graph, connection);
+  const source = graph.nodes[connection.source];
+  const target = graph.nodes[connection.target];
+  if (from.type !== 'flow' || to.type !== 'flow') {
+    throw new ViewError('effect flow must join two flow ports');
+  }
+  if (source.kind === 'expression' || target.kind !== 'effect') {
+    throw new ViewError('effect flow must end at an effect node');
+  }
+  if (!target.matchName) throw new ViewError(`effect node "${target.name}" has no match name`);
+  if (Object.values(graph.edges).some((edge) => edge.kind === 'flow' && edge.from === source.id)) {
+    throw new ViewError(`effect flow from "${source.name}" already has a next node`);
+  }
+  if (flowWouldCycle(graph, source.id, target.id)) {
+    throw new ViewError('that effect connection would make a cycle');
+  }
+  const id = edgeId || nextEdgeId(graph);
+  addEdge(graph, { id, from: source.id, to: target.id, kind: 'flow', fromProp: 'flow', toProp: 'flow' });
+  return { kind: 'flow', edge: id };
+}
+
+export function connectExpression(graph, connection, { edgeId } = {}) {
+  const { from, to } = validateEnds(graph, connection);
+  const source = graph.nodes[connection.source];
+  const target = graph.nodes[connection.target];
+  const validSource = from.type === 'expression' && source.kind === 'expression'
+    || from.type === 'property' && source.kind !== 'expression' && source.kind !== 'effect'
+      && source.props?.[from.prop] !== undefined;
+  if (!validSource || to.type !== 'property' || target.kind === 'expression' || target.kind === 'effect'
+      || target.props?.[to.prop] === undefined) {
+    throw new ViewError('expression wires currently support layer transform properties only');
+  }
+
+  const displaced = Object.values(graph.edges)
+    .filter((edge) => edge.kind === 'expression' && edge.to === target.id && edge.toProp === to.prop);
+  const id = edgeId || nextEdgeId(graph);
+  addEdge(graph, {
+    id, from: source.id,
+    fromProp: from.type === 'property' ? pathFromPort(from.prop) : 'expression',
+    to: target.id, toProp: to.prop, kind: 'expression',
+  });
+  for (const edge of displaced) if (edge.id !== id) delete graph.edges[edge.id];
+  return { kind: 'expression', edge: id, replaced: displaced.map((edge) => edge.id) };
+}
+
+export function connectParent(graph, connection) {
+  const { from, to } = validateEnds(graph, connection);
+  const source = graph.nodes[connection.source];
+  const target = graph.nodes[connection.target];
+  if (from.type !== 'parent' || to.type !== 'parent') {
+    throw new ViewError('a parent wire has to join two parent ports');
+  }
+  if (source.kind === 'expression' || source.kind === 'effect'
+      || target.kind === 'expression' || target.kind === 'effect') {
+    throw new ViewError('only layer nodes can be parented');
+  }
+  if (wouldCycle(graph, target.id, source.id)) {
+    throw new ViewError(`parenting ${target.id} to ${source.id} would make a loop`);
+  }
+  target.parent = source.id;
+  return { kind: 'parent', node: target.id, to: source.id };
+}
+
 /**
  * A wire the user just drew, turned into a mutation of the graph.
  *
@@ -144,50 +268,11 @@ export const propFromHandle = (handle) => {
  * edge is a change to the comp.
  */
 export function connect(graph, connection, { edgeId } = {}) {
-  const { source, target, sourceHandle, targetHandle } = connection;
-  if (!graph.nodes[source]) throw new ViewError(`unknown source node "${source}"`);
-  if (!graph.nodes[target]) throw new ViewError(`unknown target node "${target}"`);
-  if (source === target) {
-    // A layer parented to itself, or an expression reading its own output, is a
-    // cycle After Effects would refuse - so it is refused here, where the user
-    // can still see what they did.
-    throw new ViewError('a node cannot be wired to itself');
-  }
-
-  const fromProp = propFromHandle(sourceHandle);
-  const toProp = propFromHandle(targetHandle);
-
-  if (fromProp === PARENT_HANDLE || toProp === PARENT_HANDLE) {
-    if (fromProp !== toProp) {
-      throw new ViewError('a parent wire has to join two parent ports');
-    }
-    if (wouldCycle(graph, target, source)) {
-      throw new ViewError(`parenting ${target} to ${source} would make a loop`);
-    }
-    graph.nodes[target].parent = source;
-    return { kind: 'parent', node: target, to: source };
-  }
-
-  if (!fromProp || !toProp) throw new ViewError('a wire needs a port at each end');
-
-  // One property holds one expression, so a second edge onto the same input
-  // REPLACES the first rather than joining it. The alternative is the conflict
-  // the diff already warns about, which is a worse thing to hand a user.
-  const displaced = Object.values(graph.edges)
-    .filter((e) => e.to === target && e.toProp === toProp);
-  for (const e of displaced) delete graph.edges[e.id];
-
-  const id = edgeId || nextEdgeId(graph);
-  addEdge(graph, {
-    id,
-    from: source,
-    // The source port names a property; the expression body addresses it the way
-    // After Effects does, through the layer's transform.
-    fromProp: pathFromPort(fromProp),
-    to: target,
-    toProp,
-  });
-  return { kind: 'edge', edge: id, replaced: displaced.map((e) => e.id) };
+  const from = handleMeta(connection.sourceHandle);
+  const to = handleMeta(connection.targetHandle);
+  if (from?.type === 'flow' || to?.type === 'flow') return connectFlow(graph, connection, { edgeId });
+  if (from?.type === 'parent' || to?.type === 'parent') return connectParent(graph, connection);
+  return connectExpression(graph, connection, { edgeId });
 }
 
 // Following parents upward. Cheap: the chain is a chain, and AE refuses a loop

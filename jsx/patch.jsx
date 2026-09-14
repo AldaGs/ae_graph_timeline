@@ -42,9 +42,8 @@ function ntlpLayer(ctx, nodeId, nativeId) {
     if (l === undefined) throw ntlpFail('no layer carries the tag "' + nodeId + '"');
     if (ctx.counts[nodeId] > 1) {
         if (nativeId !== undefined && nativeId !== null) {
-            for (var i = 1; i <= ctx.comp.numLayers; i++) {
-                if (ctx.comp.layer(i).id === nativeId) return ctx.comp.layer(i);
-            }
+            var candidate = ctx.byNativeId[nativeId];
+            if (candidate && ntlrNodeIdFromTag(candidate.comment) === nodeId) return candidate;
             throw ntlpFail('no layer found with id ' + nativeId + ' for tag "' + nodeId + '"');
         }
         // S3: a duplicated layer carries the same comment. The diff already
@@ -110,8 +109,23 @@ function ntlpCreateLayer(ctx, op) {
     // same undo group as the creation. A created-but-untagged layer would be
     // indistinguishable from one of the user's own.
     layer.comment = ntlrTagFor(op.node);
+    if (op.label !== undefined) layer.label = op.label;
+    if (op.enabled !== undefined) layer.enabled = op.enabled;
+    // AE inserts new layers at the top. Place a new managed layer relative to
+    // the existing managed stack in this same undo group.
+    if (op.order !== undefined) {
+        var managed = [];
+        for (var li = 1; li <= comp.numLayers; li++) {
+            var existing = comp.layer(li);
+            if (existing !== layer && ntlrNodeIdFromTag(existing.comment) !== null) managed.push(existing);
+        }
+        var slot = Math.max(0, Math.min(managed.length, op.order - 1));
+        if (slot < managed.length) layer.moveBefore(managed[slot]);
+        else if (managed.length) layer.moveAfter(managed[managed.length - 1]);
+    }
 
     ctx.byTag[op.node] = layer;
+    ctx.byNativeId[layer.id] = layer;
     ctx.counts[op.node] = 1;
     ctx.created++;
     // M4: record the native id so the panel can cache it on the graph node.
@@ -132,6 +146,7 @@ function ntlpCreateLayer(ctx, op) {
 function ntlpDeleteLayer(ctx, op) {
     // M4: use nativeId to target the right duplicate if available
     var layer = ntlpLayer(ctx, op.node, op.nativeId);
+    delete ctx.byNativeId[layer.id];
     layer.remove();
     delete ctx.byTag[op.node];
     delete ctx.counts[op.node];
@@ -163,66 +178,37 @@ function ntlpSetLabel(ctx, op) {
 }
 
 function ntlpReorder(ctx, op) {
-    // op.tags is the desired top-to-bottom order of managed layers.
-    // To achieve this without scrambling unmanaged layers unnecessarily,
-    // we iterate the desired array backward, and move each layer above the
-    // lowest possible remaining managed layer.
-    // Wait, the simplest robust way to sort an interleaved subset is to find the
-    // actual layer instances in AE in their current order, and just re-insert them 
-    // in the new order at the exact indices they occupied.
-    // E.g. managed layers are at index 2, 5, 8. 
-    // We want the node array [A, B, C] to go into indices 2, 5, 8.
-    // So A goes to 2, B goes to 5, C goes to 8.
-    
-    // 1. Gather all managed layer instances that are part of this reorder, and their current indices.
+    // Put the requested managed layers into the slots currently occupied by
+    // managed layers. User-owned layers therefore keep both their relative
+    // order and their exact indices.
     var currentIndices = [];
     var layersById = {};
+    var requested = {};
+    for (var j = 0; j < op.tags.length; j++) requested['$' + op.tags[j]] = true;
     for (var i = 1; i <= ctx.comp.numLayers; i++) {
         var layer = ctx.comp.layer(i);
-        var tag = ntlrTag(layer.comment);
-        // Only consider layers that are in op.tags
-        for (var j = 0; j < op.tags.length; j++) {
-            if (op.tags[j] === tag && ctx.counts[tag] === 1) {
-                currentIndices.push(i);
-                layersById[tag] = layer;
-                break;
-            }
+        var tag = ntlrNodeIdFromTag(layer.comment);
+        if (requested['$' + tag] && ctx.counts[tag] === 1) {
+            currentIndices.push(i);
+            layersById[tag] = layer;
         }
     }
-    
-    // Sort currentIndices just in case (AE is 1-based, top-to-bottom)
-    currentIndices.sort(function(a, b) { return a - b; });
-    
-    // 2. Now place the desired layers into these slots.
-    // Because moving layers shifts indices, we work bottom-up.
-    // The lowest desired layer (last in op.tags) goes to the highest index (last in currentIndices).
-    // If we move the bottom-most layer into position first, it doesn't affect the indices of the slots above it.
-    for (var k = op.tags.length - 1; k >= 0; k--) {
-        var tagToMove = op.tags[k];
+
+    if (currentIndices.length !== op.tags.length) {
+        throw new Error('reorder layer set changed; refusing a partial reorder');
+    }
+
+    for (var k = 0; k < op.tags.length; k++) {
+        var layerToMove = layersById[op.tags[k]];
         var targetIndex = currentIndices[k];
-        var layerToMove = layersById[tagToMove];
-        
-        if (!layerToMove) continue; // Layer might have been deleted or missing
-        
-        // Move it before the layer that is currently at targetIndex + 1
-        // If targetIndex is the very bottom (comp.numLayers), we move it to the end.
-        if (targetIndex === ctx.comp.numLayers) {
-            layerToMove.moveToEnd();
-        } else {
-            // It goes above whatever is currently at targetIndex.
-            // Wait, if we are working bottom-up, placing it above (targetIndex + 1) works because
-            // whatever is at targetIndex+1 and below is already finalized.
-            var anchor = ctx.comp.layer(targetIndex + 1);
-            if (layerToMove.index !== targetIndex) {
-                // If it's already at targetIndex, no need to move.
-                // Note: if it's currently BELOW the anchor, moving it BEFORE the anchor puts it at targetIndex.
-                // If it's currently ABOVE the anchor, moving it BEFORE the anchor ALSO puts it at targetIndex.
-                layerToMove.moveBefore(anchor);
-            }
-        }
+        if (!layerToMove) throw new Error('reorder layer is missing: ' + op.tags[k]);
+        if (layerToMove.index === targetIndex) continue;
+
+        var anchor = ctx.comp.layer(targetIndex);
+        if (layerToMove.index > targetIndex) layerToMove.moveBefore(anchor);
+        else layerToMove.moveAfter(anchor);
     }
-    
-    // A single revert op that puts them back the way they were
+
     return { op: 'reorder', tags: op.current, current: op.tags };
 }
 
@@ -470,15 +456,24 @@ function ntlpFindComp(name) {
  * @param label     what the user will see in Edit > Undo
  * @param expectRevision  the app.project.revision the diff was computed against;
  *                  -1 to skip the check
+ * @param expectCompId  native comp identity pinned when the loop was created
  */
-function NTL_ApplyPatch(compName, ops, label, expectRevision) {
+function NTL_ApplyPatch(compName, ops, label, expectRevision, expectCompId) {
     var started = false;
     var ctx = null;
     var applied = 0;
     var inverse = [];
     try {
-        var comp = ntlpFindComp(compName);
+        var comp = ntlrFindComp(compName, expectCompId);
         if (!comp) return ntlrVal({ ok: false, message: 'no composition' });
+        if (expectCompId !== undefined && expectCompId !== null) {
+            var activeComp = app.project.activeItem;
+            if (!activeComp || !(activeComp instanceof CompItem) || activeComp.id !== expectCompId) {
+                return ntlrVal({ ok: false, stale: true, message: 'active composition changed',
+                                 expectedCompId: expectCompId,
+                                 actualCompId: activeComp && activeComp instanceof CompItem ? activeComp.id : null });
+            }
+        }
         if (!ops || !(ops instanceof Array)) {
             return ntlrVal({ ok: false, message: 'no ops array' });
         }
@@ -505,7 +500,7 @@ function NTL_ApplyPatch(compName, ops, label, expectRevision) {
 
         $.hiresTimer;
         var scan = ntlrScanTags(comp);
-        ctx = { comp: comp, byTag: scan.byTag, counts: scan.counts,
+        ctx = { comp: comp, byTag: scan.byTag, counts: scan.counts, byNativeId: scan.byNativeId,
                 props: {}, writes: 0, created: 0, createdIds: {} };
         var scanMs = $.hiresTimer / 1000;
 

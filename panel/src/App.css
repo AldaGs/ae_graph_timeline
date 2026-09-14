@@ -27,6 +27,16 @@ html, body, #root {
 }
 
 .ntl-app { display: flex; flex-direction: column; height: 100%; }
+.ntl-canvas { position: relative; }
+.ntl-inspector { position: absolute; top: 8px; left: 8px; width: 225px; max-height: calc(100% - 16px); overflow: auto; padding: 12px; background: var(--ntl-panel); border: 1px solid var(--ntl-line); border-radius: 5px; z-index: 900; }
+.ntl-inspector fieldset { border: 0; padding: 0; min-width: 0; }
+.ntl-inspector label { display: flex; flex-direction: column; gap: 3px; margin: 9px 0; }
+.ntl-inspector input, .ntl-inspector select { width: 100%; min-width: 0; padding: 5px; background: var(--ntl-bg); color: var(--ntl-text); border: 1px solid var(--ntl-line); border-radius: 3px; }
+.ntl-inspector details { margin: 9px 0; }
+.ntl-inspector details button { margin: 4px 3px 4px 0; }
+button:focus-visible, input:focus-visible, select:focus-visible, summary:focus-visible { outline: 2px solid var(--ntl-edge); outline-offset: 2px; }
+.ntl-outliner { --bg-canvas: var(--ntl-panel); --border-panel: var(--ntl-line); --text-dim: var(--ntl-dim); --bg-panel: var(--ntl-bg); --text-main: var(--ntl-text); resize: horizontal; overflow: auto; min-width: 160px; max-width: 40%; }
+.ntl-outliner-row.is-selected { background: #32445b; }
 
 /* ------------------------------------------------------------------ the bar */
 
@@ -60,13 +70,60 @@ button:disabled { opacity: 0.4; cursor: default; }
    than about the graph, so it says what it knows and nothing more. */
 .ntl-link { display: flex; align-items: center; gap: 6px; }
 .ntl-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ntl-dim); }
-.ntl-link.is-live .ntl-dot { background: var(--ntl-live); }
+.ntl-link.is-live .ntl-dot,
+.ntl-link.is-reading .ntl-dot,
+.ntl-link.is-writing .ntl-dot { background: var(--ntl-live); }
 .ntl-link.is-error .ntl-dot { background: #cc5b5b; }
 .ntl-link.is-browser .ntl-dot { background: var(--ntl-warn); }
 
 /* --------------------------------------------------------------- the canvas */
 
 .ntl-canvas { flex: 1 1 auto; min-height: 0; }
+.ntl-startup {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: min(420px, calc(100% - 32px));
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 16px;
+  color: var(--ntl-text);
+  background: rgba(35, 35, 35, 0.96);
+  border: 1px solid var(--ntl-line);
+  border-radius: 5px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.5);
+  z-index: 1100;
+}
+.ntl-startup span { color: var(--ntl-dim); }
+.ntl-startup.is-needs-decision,
+.ntl-startup.is-error { border-color: var(--ntl-warn); }
+.ntl-startup button { align-self: flex-start; }
+.ntl-link.is-changed .ntl-dot,
+.ntl-link.is-blocked .ntl-dot { background: var(--ntl-warn); }
+.ntl-drift {
+  position: absolute;
+  right: 16px;
+  top: 16px;
+  width: min(390px, calc(100% - 32px));
+  max-height: calc(100% - 32px);
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px;
+  background: rgba(35, 35, 35, 0.98);
+  border: 1px solid var(--ntl-warn);
+  border-radius: 5px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.55);
+  z-index: 1150;
+}
+.ntl-drift > span { color: var(--ntl-dim); }
+.ntl-drift-list { display: flex; flex-direction: column; gap: 6px; }
+.ntl-drift-group { display: flex; flex-direction: column; gap: 2px; padding: 7px; background: rgba(255,255,255,.035); }
+.ntl-drift-group span { color: var(--ntl-dim); }
+.ntl-drift-actions { display: flex; flex-wrap: wrap; gap: 7px; }
 .react-flow { background: var(--ntl-bg); }
 .react-flow__controls-button {
   background: #2b2b2b;
@@ -192,9 +249,13 @@ button:disabled { opacity: 0.4; cursor: default; }
   z-index: 3;
 }
 .ntl-handle:hover { background: var(--ntl-edge); }
+.ntl-handle-property { border-radius: 50%; }
 .ntl-handle-parent { background: #5a4e36; border-color: var(--ntl-parent); }
+.ntl-handle-parent { border-radius: 1px; transform: rotate(45deg); }
 .ntl-handle-effect { background: #3d4a3d; border-color: #5a7a5a; }
 .ntl-handle-effect:hover { background: #6fbf73; }
+.ntl-handle-flow { width: 12px; height: 7px; border-radius: 2px; background: #355c3a; border: 1px solid #70b978; }
+.ntl-handle-expr { width: 10px; height: 10px; border-radius: 50%; background: #365b7d; border: 2px solid #5b9dd9; }
 
 /* The minimap defaults to a white page; inside After Effects that is a torch in
    a dark room. */

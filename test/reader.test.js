@@ -8,7 +8,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { parseCompState, normalizeCompState, ReadError, readCompCall, jsxStringLiteral } from '../src/reader.js';
+import {
+  parseCompState, normalizeCompState, ReadError, readCompCall, jsxStringLiteral,
+  newCompDialogCall, parseNewCompDialog,
+  activeCompCall, parseActiveComp,
+  classifyActiveComp,
+} from '../src/reader.js';
 import { diff } from '../src/diff.js';
 import { createGraph, addNode, addEdge, tagFor, expressionFor, expressionBody } from '../src/graph.js';
 
@@ -51,9 +56,10 @@ const payload = (layers, over = {}) => ({
 // ---- the call --------------------------------------------------------------
 
 test('the evalScript call is built with escaped arguments', () => {
-  assert.equal(readCompCall(), 'NTL_ReadComp(null, false)');
+  assert.equal(readCompCall(), 'NTL_ReadComp(null, false, null)');
   assert.equal(readCompCall({ compName: 'Shot 01', includeEffects: true }),
-    'NTL_ReadComp("Shot 01", true)');
+    'NTL_ReadComp("Shot 01", true, null)');
+  assert.equal(readCompCall({ compId: 42 }), 'NTL_ReadComp(null, false, 42)');
 });
 
 test('a comp name with quotes or backslashes cannot break out of the call', () => {
@@ -61,6 +67,34 @@ test('a comp name with quotes or backslashes cannot break out of the call', () =
   assert.equal(jsxStringLiteral('he said "hi"'), '"he said \\"hi\\""');
   assert.equal(jsxStringLiteral('C:\\temp'), '"C:\\\\temp"');
   assert.equal(jsxStringLiteral('two\nlines'), '"two\\nlines"');
+});
+
+test('the new-comp call opens the native AE dialog', () => {
+  assert.equal(newCompDialogCall(), 'NTL_ShowNewCompDialog()');
+});
+
+test('the native new-comp dialog result is validated, including cancel', () => {
+  assert.equal(parseNewCompDialog('{"ok":true,"created":true,"compName":"Shot","compId":42}').compId, 42);
+  assert.equal(parseNewCompDialog('{"ok":true,"created":false}').created, false);
+  assert.throws(() => parseNewCompDialog('{"ok":false,"message":"no project"}'),
+    (e) => e instanceof ReadError && /no project/.test(e.message));
+  assert.throws(() => parseNewCompDialog('EvalScript error.'),
+    (e) => e instanceof ReadError && /did not return JSON/.test(e.message));
+});
+
+test('the active-comp identity check validates present and absent comps', () => {
+  assert.equal(activeCompCall(), 'NTL_ActiveComp()');
+  assert.equal(parseActiveComp('{"ok":true,"active":false}').active, false);
+  assert.equal(parseActiveComp('{"ok":true,"active":true,"compName":"Shot","compId":9}').compId, 9);
+  assert.throws(() => parseActiveComp('{"ok":true,"active":true}'),
+    (e) => e instanceof ReadError && /did not identify/.test(e.message));
+});
+
+test('active comp identity catches deletion and switching to a duplicate', () => {
+  const expected = { compId: 9, compName: 'Shot' };
+  assert.equal(classifyActiveComp(expected, { active: false }).status, 'missing');
+  assert.equal(classifyActiveComp(expected, { active: true, compId: 10, compName: 'Shot 2' }).status, 'changed');
+  assert.equal(classifyActiveComp(expected, { active: true, compId: 9, compName: 'Renamed Shot' }).status, 'same');
 });
 
 // ---- refusing a bad read ---------------------------------------------------

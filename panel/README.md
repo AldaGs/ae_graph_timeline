@@ -1,6 +1,6 @@
 # The panel
 
-M1: a node canvas over the P1 graph model, docked in After Effects.
+A node canvas over the reconciler's graph model, docked in After Effects.
 
 ```bash
 npm install
@@ -24,16 +24,43 @@ It renders the graph, and canvas gestures mutate the graph:
 | an amber dashed wire | parenting — a real AE parent pointer, not an expression |
 | `linked` on a row | that input is driven, so it is not a value to type into |
 
-**It does not write to After Effects yet.** That is M3. The status pill proves
-the transport is live by reading `app.project.revision` through the same
-`NTL_Revision` the drift guard uses, and the footer says plainly when a change
-has not been written — a panel that looked connected while silently doing
-nothing would be the worst of both.
+The M3 write loop is connected in After Effects: graph changes are diffed against
+the active comp and applied through one undo group per completed gesture. The
+status pill reads `app.project.revision` through the same `NTL_Revision` entry
+point used by the drift guard.
+
+On startup, the panel reconstructs basic layer nodes from tagged AE layers. This
+is not yet a safe persistence substitute: it does not recover canvas positions,
+expression nodes, effect-node topology, or every graph-only relationship. The
+initial `touch()` can therefore reconcile an incomplete graph back into AE—for
+example, clearing graph-owned expressions or parent links that hydration did
+not restore. M6 is responsible for a schema-versioned graph file. Until reload
+is made non-destructive, the React/CEP path has integration coverage, and the M4
+manual scenarios pass, use only disposable or version-controlled AE projects.
+
+The current panel also has an outliner for managed-layer visibility, label
+colour, and relative order. Constant property values are displayed but are not
+editable in the node cards yet.
+
+If no composition is active, the panel stays read-only, offers **Create New
+Comp…** using AE's native composition-settings dialog, and checks once per
+second for a comp opened manually in AE. Either path automatically returns to
+the safe inspection flow; it does not require closing and reopening the
+extension.
+
+While a graph is active, the panel also checks the active comp's native ID. If
+the comp is deleted/closed, or another comp—including a duplicate—is activated,
+the write loop is closed and editing is locked. A duplicate is never adopted
+just because it carries copied `ntl:` layer tags; **Inspect Active Comp** performs
+a read-only comparison before that comp can become writable.
 
 ## How it is put together
 
 ```
-src/App.jsx           the shell: the graph object, the toolbar, the handshake
+src/App.jsx           presentational shell and toolbar
+src/hooks/            lifecycle, host monitoring and graph persistence
+src/graphCommands.js  mutation commands, redraw and write-loop notifications
+src/components/       inspector, outliner and sync/conflict panels
 src/canvas/           React Flow, and the card that draws a layer
 src/bridge/cep.js     evalScript, in the exact shape src/loop.js expects
 ../src/view.js        graph <-> canvas. Pure, and tested offline

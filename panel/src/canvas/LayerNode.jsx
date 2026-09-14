@@ -65,8 +65,8 @@ function formatValue(v) {
   return String(v ?? '');
 }
 
-// Two decimals is what a user reads; the model keeps the float. The diff
-// compares at 1e-6, so this is display only and never round-trips.
+// Two decimals is what a user reads; the model keeps the float. Display rounding
+// never round-trips; the diff uses absolute and relative tolerances.
 const round = (n) => (Number.isFinite(n) ? String(Math.round(n * 100) / 100) : '—');
 
 function EffectSection({ effect, nodeId }) {
@@ -118,7 +118,7 @@ function LayerNode({ id, data, selected }) {
 
   return (
     <div className={`ntl-node${selected ? ' is-selected' : ''}`}>
-      <Handle type="target" position={Position.Top} id="in:in" className="ntl-handle-flow" />
+      <Handle type="target" position={Position.Top} id="flow:in" className="ntl-handle-flow" aria-label="Effect flow input" />
       <header className={`ntl-node-head kind-${kind}`} style={headerStyle}>
         <span className="ntl-node-name" title={name}>{name}</span>
         <span className="ntl-node-kind">{KIND_LABEL[kind] || kind}</span>
@@ -135,15 +135,17 @@ function LayerNode({ id, data, selected }) {
         <Handle
           type="target"
           position={Position.Left}
-          id={`in:${PARENT_HANDLE}`}
+          id={`${PARENT_HANDLE}:in`}
           className="ntl-handle ntl-handle-parent"
+          aria-label="Parent input"
         />
         <span className="ntl-row-label">parent</span>
         <Handle
           type="source"
           position={Position.Right}
-          id={`out:${PARENT_HANDLE}`}
+          id={`${PARENT_HANDLE}:out`}
           className="ntl-handle ntl-handle-parent"
+          aria-label="Parent output"
         />
       </div>
 
@@ -151,12 +153,12 @@ function LayerNode({ id, data, selected }) {
         const edge = driven[prop];
         return (
           <div key={prop} className={`ntl-row${edge ? ' is-driven' : ''}`}>
-            <Handle type="target" position={Position.Left} id={`in:${prop}`} className="ntl-handle" />
+            <Handle type="target" position={Position.Left} id={`property:in:${prop}`} className="ntl-handle ntl-handle-property" aria-label={`${prop} expression input`} />
             <span className="ntl-row-label">{prop}</span>
             <span className="ntl-row-value" title={edge ? `driven by ${edge}` : undefined}>
               {edge ? 'linked' : formatValue(props[prop])}
             </span>
-            <Handle type="source" position={Position.Right} id={`out:${prop}`} className="ntl-handle" />
+            <Handle type="source" position={Position.Right} id={`property:out:${prop}`} className="ntl-handle ntl-handle-property" aria-label={`${prop} property output`} />
           </div>
         );
       })}
@@ -173,7 +175,7 @@ function LayerNode({ id, data, selected }) {
       )}
 
       <footer className="ntl-node-foot">{id}</footer>
-      <Handle type="source" position={Position.Bottom} id="out:out" className="ntl-handle-flow" />
+      <Handle type="source" position={Position.Bottom} id="flow:out" className="ntl-handle-flow" aria-label="Effect flow output" />
     </div>
   );
 }

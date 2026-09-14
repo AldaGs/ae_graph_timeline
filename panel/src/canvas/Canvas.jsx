@@ -18,7 +18,7 @@
 // owns everything" rule; it is the same rule P1.5 applies to After Effects. A
 // drag is ONE gesture, and it is worth exactly one write at the end of it.
 
-import { useCallback, useEffect } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import ReactFlow, {
   Background, Controls, MiniMap, ReactFlowProvider,
   useEdgesState, useNodesState,
@@ -28,11 +28,11 @@ import 'reactflow/dist/style.css';
 import LayerNode from './LayerNode.jsx';
 import EffectNode from './EffectNode.jsx';
 import ExpressionNode from './ExpressionNode.jsx';
+import { createNodeCache } from './nodeCache.js';
 import {
   toFlowNodes, toFlowEdges, toParentEdges,
-  connect, disconnect, removeNode, ViewError,
+  ViewError,
 } from '../../../src/view.js';
-import { moveNode, setNodeExpression } from '../../../src/graph.js';
 
 // Defined once, outside the component. A fresh object here would tell React Flow
 // its node types changed on every render, and it re-mounts every node when they
@@ -44,35 +44,54 @@ const nodeTypes = {
 };
 
 const EXPRESSION_EDGE = { stroke: '#5b9dd9', strokeWidth: 2 };
+const FLOW_EDGE = { stroke: '#70b978', strokeWidth: 3 };
 const PARENT_EDGE = { stroke: '#c8a45c', strokeWidth: 2, strokeDasharray: '6 4' };
 
 const wiresOf = (graph) => [
-  ...toFlowEdges(graph).map((e) => ({ ...e, type: 'default', style: EXPRESSION_EDGE })),
+  ...toFlowEdges(graph).map((e) => ({
+    ...e,
+    type: e.data.kind === 'flow' ? 'smoothstep' : 'default',
+    style: e.data.kind === 'flow' ? FLOW_EDGE : EXPRESSION_EDGE,
+    animated: e.data.kind === 'flow',
+  })),
   ...toParentEdges(graph).map((e) => ({ ...e, type: 'default', style: PARENT_EDGE })),
 ];
 
-export default function Canvas({ graph, version, onChanged, onError, onSelect, onPaneContextMenu, onGestureStart, onGestureEnd }) {
+export default function Canvas({ graph, commands, version, selectedId = null, editable = true, onError, onSelect, onPaneContextMenu, onGestureStart, onGestureEnd }) {
+  const flowRef = useRef(null);
+  const cacheRef = useRef(createNodeCache());
+  const callbacksRef = useRef(new Map());
   const [nodes, setNodes, onNodesChange] = useNodesState(() => toFlowNodes(graph));
   const [edges, setEdges, onEdgesChange] = useEdgesState(() => wiresOf(graph));
 
   // Re-seeded only when the GRAPH changed - a node added, a wire drawn, a rename.
   // Never during a drag, because a drag does not bump the version.
   useEffect(() => {
-    const freshNodes = toFlowNodes(graph).map(n => ({
-      ...n,
-      data: {
-        ...n.data,
-        onExpressionChange: (expr) => {
-          setNodeExpression(graph, n.id, expr);
-          onChanged?.({ structural: false, moved: false });
-        },
-        onExpressionFocus: onGestureStart,
-        onExpressionBlur: onGestureEnd
+    const liveIds = new Set(Object.keys(graph.nodes));
+    for (const id of callbacksRef.current.keys()) {
+      if (!liveIds.has(id)) callbacksRef.current.delete(id);
+    }
+    const freshNodes = cacheRef.current(toFlowNodes(graph)).map(n => {
+      const previous = callbacksRef.current.get(n.id);
+      if (!previous || previous.commands !== commands || previous.editable !== editable
+          || previous.start !== onGestureStart || previous.end !== onGestureEnd || previous.source !== n.data) {
+        callbacksRef.current.set(n.id, {
+          commands, editable, start: onGestureStart, end: onGestureEnd, source: n.data,
+          data: { ...n.data, editable,
+            onExpressionChange: (expr) => { if (editable) commands.setExpression(n.id, expr); },
+            onExpressionFocus: onGestureStart, onExpressionBlur: onGestureEnd,
+          },
+        });
       }
-    }));
+      return {
+        ...n,
+        selected: n.id === selectedId,
+        data: callbacksRef.current.get(n.id).data,
+      };
+    });
     setNodes(freshNodes);
     setEdges(wiresOf(graph));
-  }, [graph, version, setNodes, setEdges, onChanged, onGestureStart, onGestureEnd]);
+  }, [graph, commands, version, selectedId, editable, setNodes, setEdges, onGestureStart, onGestureEnd]);
 
   const guard = useCallback((fn) => {
     // A refusal from the view layer is a sentence for the user, not a crash:
@@ -90,12 +109,10 @@ export default function Canvas({ graph, version, onChanged, onError, onSelect, o
     // model at drag stop; everything else here is about the canvas.
     onNodesChange(changes);
 
-    let structural = false;
     for (const change of changes) {
-      if (change.type === 'remove' && removeNode(graph, change.id)) structural = true;
+      if (change.type === 'remove') commands.removeFromCanvas(change.id);
     }
-    if (structural) onChanged?.({ structural: true, moved: false });
-  }, [graph, onNodesChange, onChanged]);
+  }, [commands, onNodesChange]);
 
   const handleNodeDragStart = useCallback(() => {
     onGestureStart?.();
@@ -104,32 +121,29 @@ export default function Canvas({ graph, version, onChanged, onError, onSelect, o
   // The end of the gesture. Every node that moved is written to the model at
   // once, because a multi-selection drags together.
   const handleNodeDragStop = useCallback((_event, _node, dragged) => {
-    // If it didn't move, it wasn't a drag, just a click.
-    if (dragged.length === 0) return;
-    for (const n of dragged) {
-      moveNode(graph, n.id, n.position.x, n.position.y);
-    }
-    onChanged?.({ structural: false, moved: true });
+    if (dragged.length > 0) commands.moveNodes(dragged);
+    // Always close what drag-start opened, including a click with no movement.
     onGestureEnd?.();
-  }, [graph, onChanged, onGestureEnd]);
+  }, [commands, onGestureEnd]);
 
   const handleEdgesChange = useCallback((changes) => {
     onEdgesChange(changes);
-    let structural = false;
     for (const change of changes) {
-      if (change.type === 'remove' && disconnect(graph, change.id)) structural = true;
+      if (change.type === 'remove') commands.disconnect(change.id);
     }
-    if (structural) onChanged?.({ structural: true, moved: false });
-  }, [graph, onEdgesChange, onChanged]);
+  }, [commands, onEdgesChange]);
 
   const handleConnect = useCallback((connection) => {
-    const result = guard(() => connect(graph, connection));
-    if (result) onChanged?.({ structural: true, moved: false, what: result });
-  }, [graph, guard, onChanged]);
+    guard(() => commands.connectTyped(connection));
+  }, [commands, guard]);
 
   const handleSelectionChange = useCallback(({ nodes: selected }) => {
-    onSelect?.(selected?.[0]?.id ?? null);
+    // React Flow can report an empty selection when focus moves to the toolbar.
+    // Only a positive selection is accepted here; pane clicks clear explicitly.
+    if (selected?.[0]?.id) onSelect?.(selected[0].id);
   }, [onSelect]);
+
+  const handlePaneClick = useCallback(() => onSelect?.(null), [onSelect]);
 
   return (
     <ReactFlowProvider>
@@ -137,16 +151,31 @@ export default function Canvas({ graph, version, onChanged, onError, onSelect, o
         nodes={nodes}
         edges={edges}
         nodeTypes={nodeTypes}
-        onNodesChange={handleNodesChange}
-        onNodeDragStart={handleNodeDragStart}
-        onNodeDragStop={handleNodeDragStop}
-        onEdgesChange={handleEdgesChange}
-        onConnect={handleConnect}
+        onInit={(instance) => { flowRef.current = instance; }}
+        onNodesChange={editable ? handleNodesChange : undefined}
+        onNodeDragStart={editable ? handleNodeDragStart : undefined}
+        onNodeDragStop={editable ? handleNodeDragStop : undefined}
+        onEdgesChange={editable ? handleEdgesChange : undefined}
+        onConnect={editable ? handleConnect : undefined}
         onSelectionChange={handleSelectionChange}
-        onPaneContextMenu={onPaneContextMenu}
+        onPaneClick={handlePaneClick}
+        onPaneContextMenu={editable ? (event) => onPaneContextMenu?.(event, flowRef.current?.screenToFlowPosition({ x: event.clientX, y: event.clientY })) : undefined}
         // Deleting is destructive and reaches the comp, so it is a deliberate
         // keystroke rather than something a stray Backspace can do.
-        deleteKeyCode={['Delete']}
+        deleteKeyCode={null}
+        onKeyDown={(event) => {
+          if (editable && event.key === 'Delete' && !event.target.isContentEditable && !['INPUT', 'TEXTAREA', 'SELECT'].includes(event.target.tagName)) {
+            event.preventDefault();
+            const selectedEdges = edges.filter((edge) => edge.selected);
+            if (selectedEdges.length) {
+              selectedEdges.forEach((edge) => guard(() => commands.disconnect(edge.id)));
+            } else if (selectedId) {
+              document.getElementById('ntl-inspector-delete')?.click();
+            }
+          }
+        }}
+        nodesDraggable={editable}
+        nodesConnectable={editable}
         proOptions={{ hideAttribution: true }}
         fitView
         // Without the padding the outermost nodes sit against the pane edge,
@@ -158,13 +187,13 @@ export default function Canvas({ graph, version, onChanged, onError, onSelect, o
       >
         <Background color="#2a2a2a" gap={22} size={1} />
         <Controls showInteractive={false} />
-        <MiniMap
+        {nodes.length <= 200 && <MiniMap
           pannable
           zoomable
           nodeColor="#4a4a4a"
           maskColor="rgba(10,10,10,0.6)"
           style={{ background: '#1a1a1a', border: '1px solid #3a3a3a' }}
-        />
+        />}
       </ReactFlow>
     </ReactFlowProvider>
   );

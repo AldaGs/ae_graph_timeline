@@ -10,7 +10,14 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { createGraph, addNode, addEdge, tagFor, expressionFor, expressionBody } from '../src/graph.js';
-import { diff, valueEquals } from '../src/diff.js';
+import { buildEffectFlowIndex, diff, valueEquals, propertyEquals } from '../src/diff.js';
+
+test('AE neutral third transform components do not create perpetual writes', () => {
+  assert.equal(propertyEquals('position', [960, 540], [960, 540, 0]), true);
+  assert.equal(propertyEquals('scale', [100, 100], [100, 100, 100]), true);
+  assert.equal(propertyEquals('position', [960, 540], [960, 540, 10]), false);
+  assert.equal(propertyEquals('color', [1, 1], [1, 1, 0]), false);
+});
 
 // ---- helpers ---------------------------------------------------------------
 
@@ -40,6 +47,23 @@ test('float comparison tolerates AE round-trip noise', () => {
   assert.ok(!valueEquals(100, 100.1));
   assert.ok(!valueEquals([960, 540], [960, 541]));
   assert.ok(!valueEquals([960, 540], [960, 540, 0]));
+});
+
+test('effect controller hosts do not introduce a perpetual layer reorder', () => {
+  const g = createGraph();
+  addNode(g, { id: 'a', name: 'a', props: {} });
+  addNode(g, { id: 'fx', kind: 'effect', name: 'fx', matchName: 'ADBE Fill', props: {} });
+  const result = diff(g, comp([managed('fx', { props: {} }), managed('a', { props: {} })]));
+  assert.equal(opsOf(result, 'reorder').length, 0);
+});
+
+test('flow indexing handles a deep chain without recursion or copied trails', () => {
+  const graph = { nodes: {}, edges: {} };
+  for (let i = 0; i < 12000; i++) {
+    graph.nodes[i] = { id: String(i), kind: 'effect', matchName: 'ADBE Fill' };
+    if (i) graph.edges[i] = { id: String(i), kind: 'flow', from: String(i - 1), to: String(i) };
+  }
+  assert.equal(buildEffectFlowIndex(graph).errors.length, 0);
 });
 
 // ---- creates and deletes ---------------------------------------------------
@@ -280,4 +304,40 @@ test('blend mode changes are diffed', () => {
   assert.equal(r.ops.length, 1);
   assert.equal(r.ops[0].op, 'setBlendMode');
   assert.equal(r.ops[0].to, 'multiply');
+});
+
+test('effect flow indexing reports branches and cycles instead of choosing silently', () => {
+  const g = createGraph();
+  addNode(g, { id: 'layer', props: {} });
+  addNode(g, { id: 'fx1', kind: 'effect', matchName: 'ADBE Fill' });
+  addNode(g, { id: 'fx2', kind: 'effect', matchName: 'ADBE Tint' });
+  g.edges.a = { id: 'a', from: 'layer', to: 'fx1', kind: 'flow' };
+  g.edges.b = { id: 'b', from: 'layer', to: 'fx2', kind: 'flow' };
+  let index = buildEffectFlowIndex(g);
+  assert.equal(index.errors[0].kind, 'flowBranch');
+  assert.deepEqual(index.effectsFor('layer'), []);
+
+  g.edges = {
+    a: { id: 'a', from: 'layer', to: 'fx1', kind: 'flow' },
+    b: { id: 'b', from: 'fx1', to: 'fx2', kind: 'flow' },
+    c: { id: 'c', from: 'fx2', to: 'fx1', kind: 'flow' },
+  };
+  index = buildEffectFlowIndex(g);
+  assert.ok(index.errors.some((error) => error.kind === 'flowCycle'));
+  assert.doesNotThrow(() => index.effectsFor('layer'));
+});
+
+test('effect flow indexing is built once and walks a large chain linearly', () => {
+  const g = createGraph();
+  addNode(g, { id: 'layer', props: {} });
+  let previous = 'layer';
+  for (let i = 0; i < 1000; i++) {
+    const id = `fx${i}`;
+    addNode(g, { id, kind: 'effect', matchName: `ADBE Test ${i}` });
+    g.edges[`flow${i}`] = { id: `flow${i}`, from: previous, to: id, kind: 'flow' };
+    previous = id;
+  }
+  const index = buildEffectFlowIndex(g);
+  assert.equal(index.errors.length, 0);
+  assert.equal(index.effectsFor('layer').length, 1000);
 });

@@ -13,13 +13,27 @@ const EPSILON = 1e-6;
 // diff reports spurious changes forever.
 export function valueEquals(a, b) {
   if (a === b) return true;
-  if (typeof a === 'number' && typeof b === 'number') return Math.abs(a - b) < EPSILON;
+  if (typeof a === 'number' && typeof b === 'number') {
+    // AE persists some values at single precision. Allow half a float32 ULP
+    // in addition to the absolute floor, while retaining meaningful edits.
+    return Math.abs(a - b) <= Math.max(EPSILON, Math.max(Math.abs(a), Math.abs(b)) * (2 ** -24));
+  }
   if (Array.isArray(a) && Array.isArray(b)) {
     if (a.length !== b.length) return false;
     for (let i = 0; i < a.length; i++) if (!valueEquals(a[i], b[i])) return false;
     return true;
   }
   return false;
+}
+
+export function propertyEquals(prop, a, b) {
+  if (Array.isArray(a) && Array.isArray(b) && Math.min(a.length, b.length) === 2
+      && Math.max(a.length, b.length) === 3 && ['position', 'anchorPoint', 'scale'].includes(prop)) {
+    const longer = a.length === 3 ? a : b;
+    return valueEquals(longer[2], prop === 'scale' ? 100 : 0)
+      && valueEquals(a.slice(0, 2), b.slice(0, 2));
+  }
+  return valueEquals(a, b);
 }
 
 // Ops are emitted in a fixed order. It matters:
@@ -55,6 +69,80 @@ export function sortPatch(ops) {
   return [...ops].sort((a, b) => OP_ORDER.indexOf(a.op) - OP_ORDER.indexOf(b.op));
 }
 
+// Validate and index effect flow once per diff. The previous traversal rebuilt
+// this map for every layer and silently chose the first branch, which made both
+// malformed graphs and large graphs unnecessarily dangerous.
+export function buildEffectFlowIndex(graph) {
+  const outgoing = new Map();
+  const errors = [];
+  const invalid = new Set();
+  for (const edge of Object.values(graph.edges)) {
+    if (edge.kind !== 'flow') continue;
+    const source = graph.nodes[edge.from];
+    const target = graph.nodes[edge.to];
+    if (!source || !target || target.kind !== 'effect' || !target.matchName) {
+      errors.push({ kind: 'invalidFlow', edge: edge.id,
+        message: `effect flow ${edge.id} must end at an effect node with a match name` });
+      invalid.add(edge.from);
+      continue;
+    }
+    if (!outgoing.has(edge.from)) outgoing.set(edge.from, []);
+    outgoing.get(edge.from).push(edge);
+  }
+  for (const [nodeId, edges] of outgoing) {
+    if (edges.length <= 1) continue;
+    errors.push({ kind: 'flowBranch', node: nodeId,
+      message: `effect flow from ${nodeId} branches ${edges.length} ways; only linear chains are supported` });
+    invalid.add(nodeId);
+  }
+
+  const next = new Map();
+  for (const [nodeId, edges] of outgoing) {
+    if (edges.length === 1 && !invalid.has(nodeId)) next.set(nodeId, edges[0].to);
+  }
+  const color = new Map();
+  for (const root of next.keys()) {
+    if (color.has(root)) continue;
+    const trail = [];
+    const positions = new Map();
+    let nodeId = root;
+    while (nodeId !== undefined && !color.has(nodeId)) {
+      color.set(nodeId, 1);
+      positions.set(nodeId, trail.length);
+      trail.push(nodeId);
+      nodeId = next.get(nodeId);
+    }
+    if (positions.has(nodeId)) {
+      const cycle = trail.slice(positions.get(nodeId)).concat(nodeId);
+      for (const id of cycle) invalid.add(id);
+      errors.push({ kind: 'flowCycle', node: nodeId,
+        message: `effect flow contains a cycle: ${cycle.join(' → ')}` });
+    }
+    for (const id of trail) color.set(id, 2);
+  }
+
+  return {
+    errors,
+    effectsFor(startNodeId) {
+      const effects = [...(graph.nodes[startNodeId]?.effects || [])];
+      const seen = new Set([startNodeId]);
+      let current = startNodeId;
+      while (!invalid.has(current) && next.has(current)) {
+        const targetId = next.get(current);
+        if (seen.has(targetId) || invalid.has(targetId)) break;
+        seen.add(targetId);
+        const effect = graph.nodes[targetId];
+        effects.push({
+          matchName: effect.matchName, name: effect.name,
+          params: effect.props || {}, hostId: effect.id, hostName: effect.name,
+        });
+        current = targetId;
+      }
+      return effects;
+    },
+  };
+}
+
 /**
  * @param graph      the source of truth
  * @param compState  what After Effects currently holds, from the reader
@@ -63,6 +151,8 @@ export function sortPatch(ops) {
 export function diff(graph, compState) {
   const ops = [];
   const warnings = [];
+  const effectFlows = buildEffectFlowIndex(graph);
+  warnings.push(...effectFlows.errors);
 
   // ---- index the comp by tag, and notice duplicates -----------------------
   //
@@ -101,42 +191,14 @@ export function diff(graph, compState) {
     });
   }
 
-// Helper to flatten chained effect nodes into an array of effects for a layer node.
-function getFlattenedEffects(graph, startNodeId) {
-  const flowEdges = Object.values(graph.edges).filter((e) => e.kind === 'flow');
-  const outgoing = {};
-  for (const e of flowEdges) {
-    if (!outgoing[e.from]) outgoing[e.from] = [];
-    outgoing[e.from].push(e);
-  }
-  
-  const effects = [...(graph.nodes[startNodeId]?.effects || [])];
-  let curr = startNodeId;
-  while (outgoing[curr] && outgoing[curr].length > 0) {
-    const edge = outgoing[curr][0]; // MVP: assume linear chain
-    const nextNode = graph.nodes[edge.to];
-    if (nextNode && nextNode.kind === 'effect') {
-      effects.push({
-        matchName: nextNode.matchName,
-        name: nextNode.name,
-        hostId: nextNode.id,
-        hostName: nextNode.name,
-      });
-      curr = nextNode.id;
-    } else {
-      break;
-    }
-  }
-  return effects;
-}
-
   // ---- layers the graph wants that are not there --------------------------
   for (const node of Object.values(graph.nodes)) {
     if (node.kind === 'expression') continue;
     if (resolved.has(node.id)) continue;
     const kind = node.kind === 'effect' ? 'null' : node.kind;
     const props = node.kind === 'effect' ? {} : node.props;
-    ops.push({ op: 'createLayer', node: node.id, kind, name: node.name, props });
+    ops.push({ op: 'createLayer', node: node.id, kind, name: node.name, props,
+      label: node.label, enabled: node.enabled, order: node.order });
   }
 
   // ---- layers we own that the graph no longer wants -----------------------
@@ -160,6 +222,10 @@ function getFlattenedEffects(graph, startNodeId) {
     }
 
     for (const [prop, want] of Object.entries(node.props)) {
+      // Parenting compensates local transforms to retain the visible pose.
+      // The post-patch observation captures those new local constants.
+      if ((node.parent ?? null) !== (layer.parentTag ?? null)
+          && ['position', 'anchorPoint', 'scale', 'rotation'].includes(prop)) continue;
       // A property driven by an expression is not ours to write: the expression
       // IS the value. Writing it would be overwritten on the next frame anyway.
       if (desired[`${node.id}|${prop}`]) continue;
@@ -170,7 +236,7 @@ function getFlattenedEffects(graph, startNodeId) {
           message: `comp state has no "${prop}" for node ${node.id}` });
         continue;
       }
-      if (!valueEquals(have, want)) {
+      if (!propertyEquals(prop, have, want)) {
         ops.push({ op: 'setProp', node: node.id, prop, from: have, to: want });
       }
     }
@@ -195,7 +261,7 @@ function getFlattenedEffects(graph, startNodeId) {
 
     const wantEffects = node.kind === 'effect' 
       ? [{ matchName: node.matchName, name: node.name, params: node.props }]
-      : getFlattenedEffects(graph, node.id);
+      : effectFlows.effectsFor(node.id);
 
     const haveEffects = layer.effects || [];
     for (let i = 0; i < wantEffects.length; i++) {
@@ -278,7 +344,8 @@ function getFlattenedEffects(graph, startNodeId) {
 
   // ---- layer order --------------------------------------------------------
   // We extract the order of managed layers currently in AE, and the desired order.
-  // We only care about layer-type nodes (solids, nulls, shapes, etc) since effects/expressions aren't AE layers.
+  // Only visible layer nodes participate; effect-controller host nulls retain
+  // their slots and expressions have no host layer.
   const layerNodes = Object.values(graph.nodes).filter(n => n.kind !== 'expression' && n.kind !== 'effect');
   
   // Desired sequence of tags from top (smallest index) to bottom
@@ -290,8 +357,10 @@ function getFlattenedEffects(graph, startNodeId) {
   // Current sequence of tags in AE (compState.layers is top-to-bottom)
   const currentTags = compState.layers
     .map(l => {
-      const tag = l.comment.trim().replace(/^ntl:/, '');
-      return resolved.has(tag) && l === resolved.get(tag) && graph.nodes[tag] ? tag : null;
+      const tag = nodeIdFromTag(l.comment);
+      const node = graph.nodes[tag];
+      return resolved.has(tag) && l === resolved.get(tag) && node
+        && node.kind !== 'effect' && node.kind !== 'expression' ? tag : null;
     })
     .filter(tag => tag !== null);
 

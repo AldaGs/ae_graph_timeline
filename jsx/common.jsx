@@ -118,8 +118,10 @@ function ntlrPlain(value) {
 function ntlrScanTags(comp) {
     var map = {};        // nodeId -> layer
     var dupes = {};      // nodeId -> how many carry that tag
+    var byNativeId = {};
     for (var i = 1; i <= comp.numLayers; i++) {
         var l = comp.layer(i);
+        byNativeId[l.id] = l;
         var tag = ntlrNodeIdFromTag(l.comment);
         if (tag === null) continue;
         if (map[tag] === undefined) {
@@ -129,5 +131,5 @@ function ntlrScanTags(comp) {
             dupes[tag]++;
         }
     }
-    return { byTag: map, counts: dupes };
+    return { byTag: map, counts: dupes, byNativeId: byNativeId };
 }

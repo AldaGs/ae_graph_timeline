@@ -55,35 +55,23 @@ export const expressionBody = (sourceLayerName, sourceProp) =>
 // Used on the canvas to distinguish layer types visually, keeping the same
 // language AE users already know.
 
+// Fixed display palette, not a read of the user's customizable AE preferences.
 export const LABEL_COLORS = [
-  null,       // 0: None
-  '#a4a4a4', // 1: Gray
-  '#9a9800', // 2: Yellow
-  '#c8a89d', // 3: Tan
-  '#c8e47e', // 4: Lime
-  '#7bcebc', // 5: Sea Foam
-  '#a9c4e4', // 6: Lavender
-  '#e8c3d3', // 7: Peach
-  '#d9c7a5', // 8: Sand
-  '#b5b5b5', // 9: Silver
-  '#f44336', // 10: Red
-  '#e69138', // 11: Orange
-  '#f1c232', // 12: Gold
-  '#6aa84f', // 13: Green
-  '#4285f4', // 14: Blue
-  '#674ea7', // 15: Purple
+  null, '#b53838', '#e4d84c', '#a9cbc7', '#e5bcca', '#a9a9ca',
+  '#e7c19e', '#b3c7b3', '#677dbd', '#4a9e4a', '#742774',
+  '#e8922f', '#7a5233', '#eb59a1', '#59a1eb', '#a1eb59', '#5e5e5e',
 ];
 
 // Default label index per layer kind. Keeps the canvas colourful out of the box
 // without the user having to label every node by hand.
 export const KIND_DEFAULT_LABEL = {
-  solid:    10,  // Red
-  null:      1,  // Gray
-  text:     12,  // Gold
-  shape:     4,  // Lime
+  solid:     1,  // Red
+  null:     16,  // Gray
+  text:      2,  // Yellow
+  shape:     9,  // Green
   footage:  11,  // Orange
-  precomp:  14,  // Blue
-  camera:    5,  // Sea Foam
+  precomp:   8,  // Blue
+  camera:    7,  // Sea Foam
   light:     2,  // Yellow
 };
 
@@ -316,4 +304,48 @@ export function hydrateFromComp(graph, compState) {
     }
   }
   return graph;
+}
+
+/** Replace a recovered graph while preserving the object held by the panel. */
+export function replaceGraph(graph, saved) {
+  graph.compName = saved.compName;
+  graph.nodes = JSON.parse(JSON.stringify(saved.nodes));
+  graph.edges = JSON.parse(JSON.stringify(saved.edges));
+}
+
+export function setNodeProperty(graph, nodeId, prop, value) {
+  const node = graph.nodes[nodeId];
+  if (!node || !(prop in node.props)) throw new Error('Unknown property');
+  if (desiredExpressions(graph)[`${nodeId}|${prop}`]) throw new Error('Disconnect the expression before editing this value');
+  const values = Array.isArray(value) ? value : [value];
+  if (!Array.isArray(node.props[prop]) && Array.isArray(value)) throw new Error('Enter a single number');
+  if (!values.length || !values.every(Number.isFinite)) throw new Error('Enter finite numeric values');
+  if (Array.isArray(node.props[prop]) && (!Array.isArray(value) || value.length !== node.props[prop].length)) throw new Error('Vector dimensions must match');
+  if (prop === 'opacity' && (value < 0 || value > 100)) throw new Error('Opacity must be between 0 and 100');
+  node.props[prop] = value;
+  return node;
+}
+
+export function setNodeField(graph, nodeId, field, value) {
+  const node = graph.nodes[nodeId];
+  if (!node) return null;
+  if (!['blendMode', 'enabled', 'label'].includes(field)) throw new Error('Unsupported node field');
+  if (field === 'blendMode' && !BLEND_MODES.includes(value)) throw new Error('Unknown blend mode');
+  if (field === 'enabled' && typeof value !== 'boolean') throw new Error('Visibility must be boolean');
+  if (field === 'label' && (!Number.isInteger(value) || value < 0 || value >= LABEL_COLORS.length)) throw new Error('Invalid label');
+  if (node[field] === value) return null;
+  node[field] = value;
+  return node;
+}
+
+export function reorderNodes(graph, nodeIds) {
+  if (new Set(nodeIds).size !== nodeIds.length || nodeIds.some((id) => !graph.nodes[id])) throw new Error('Invalid layer order');
+  let changed = false;
+  nodeIds.forEach((id, index) => {
+    if (graph.nodes[id].order !== index + 1) {
+      graph.nodes[id].order = index + 1;
+      changed = true;
+    }
+  });
+  return changed;
 }

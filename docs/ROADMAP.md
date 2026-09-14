@@ -414,9 +414,9 @@ reader and writer, 25/25 for the guard and the loop). Effect parameters are the
 one item deferred: `setEffect` is refused with a sentence rather than
 half-implemented, and belongs to M2's node set.
 
-**Next: P2's M1 — the canvas transplant into the CEP panel.**
+**Current focus: finish and verify the P2 panel integration.**
 
-### M1 — the canvas (in progress)
+### M1 — the canvas (implemented)
 
 **The canvas is transplanted, not the codebase.** ExtendBlueNode compiles a DAG
 *into* ExtendScript; here the graph *is* the comp. Its exec/data port semantics,
@@ -462,15 +462,20 @@ than by reading it:
   translates; a test asserts every wire lands on a port that is actually there,
   and it fails against the old code.
 
-**Still owed for M1:** the panel confirmed running docked inside After Effects,
-and a way to edit a node's values — today it renders them, and the toolbar covers
-adding, renaming and deleting.
+**Still owed before product use:** editing constant values in node cards,
+React/CEP integration tests, and a manual pass showing every panel action reaches
+After Effects. The panel has run docked in AE, but build/load success alone does
+not verify its interaction wiring.
 
 ---
 
 ## P2 — MVP
 
 The narrowest version that a real person could use for a real shot.
+
+The active execution order and acceptance gates are maintained in
+[`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md). That plan resolves the open
+M3/M4 integration and safety work before continuing through M5 and M6.
 
 **Scope.** Wall 4 option (a): **the graph owns structure, After Effects keeps
 time.** Keyframes stay native keyframes on generated layers. The graph is an
@@ -480,9 +485,9 @@ improvement on the layer stack; it does not yet replace the curve editor.
 |---|---|---|
 | M1 | Canvas transplant from ExtendBlueNode, into the CEP panel | **DONE** — `panel/`. React Flow over the P1 graph model, `src/view.js` translating between them (pure, 23 tests). Confirmed docked in AE. |
 | M2 | Node set: Source, Transform, Effect, Composite, **Relationship** (expressions as edges, per S6) | **DONE** — see `docs/M2.md`. Generic effects by matchName; blend mode as the composite node; AE label colours on cards. |
-| M3 | Reconciler wired to the canvas, debounced. Effect chaining & Expression nodes. | **DONE** — see `docs/M3.md`. |
-| M4 | Durable identity per S3: comment anchor + cached native id | close and reopen the project, duplicate a layer, precompose one — the graph still owns its layers and knows which copy is which |
-| M5 | Drift UX + capture-where-constant | a user edit to a constant input lands back in the graph; a computed input shows "driven by node X" instead |
+| M3 | Reconciler wired to the canvas, debounced. Effect chaining & Expression nodes. | **CORE DONE; PANEL REPAIR/VERIFICATION OPEN** — see `docs/M3.md`. |
+| M4 | Durable identity per S3: comment anchor + cached native id | **IMPLEMENTED; MANUAL AE PASS OPEN** — creation receipts, duplicate cleanup, rebind, and startup hydration exist; persistence remains lossy. See `docs/M4.md`. |
+| M5 | Drift UX + capture-where-constant | **NOT DONE.** An outliner (visibility, labels, managed-layer order) was added, but it does not satisfy this milestone's drift-resolution and constant-capture outcome. |
 | M6 | Persistence: `.ntl`, schema-versioned | save, reload, reconcile against the existing comp without rebuilding |
 | M7 | One real shot, start to finish | the honest verdict on whether this beats the timeline |
 
@@ -491,7 +496,7 @@ improvement on the layer stack; it does not yet replace the curve editor.
 ### Not in the MVP
 
 Named here so they stop creeping in: time remap, nested comps, 3D, masks,
-expressions-as-nodes, our own renderer or viewport, round-tripping a hand-built
+our own renderer or viewport, round-tripping a hand-built
 comp into a graph, and the 1,566 auto-generated AE DOM nodes from
 ExtendBlueNode (wrong abstraction — see `PLAN.md`).
 

@@ -80,7 +80,7 @@ export function jsxString(s) {
  * @param revision   the app.project.revision the diff was computed against; the
  *                   host refuses the patch if the project has moved since
  */
-export function applyPatchCall(ops, { compName = null, label = 'Node Timeline', revision = -1 } = {}) {
+export function applyPatchCall(ops, { compName = null, compId = null, label = 'Node Timeline', revision = -1 } = {}) {
   if (!Array.isArray(ops)) throw new PatchError('ops must be an array');
   for (const op of ops) {
     if (!SUPPORTED_OPS.has(op.op)) {
@@ -88,7 +88,7 @@ export function applyPatchCall(ops, { compName = null, label = 'Node Timeline', 
     }
   }
   return `${APPLY_FN}(${toJsxLiteral(compName)},${toJsxLiteral(ops)},` +
-         `${toJsxLiteral(label)},${toJsxLiteral(revision)})`;
+         `${toJsxLiteral(label)},${toJsxLiteral(revision)},${toJsxLiteral(compId)})`;
 }
 
 // ---------------------------------------------------------------- the receipt
@@ -130,11 +130,11 @@ export function parseReceipt(jsonText) {
  *
  * The inverse arrives newest-first from the host, so it is applied as given.
  */
-export function rollbackCall(receiptOrDetail, { compName = null, label = 'Node Timeline — undo patch' } = {}) {
+export function rollbackCall(receiptOrDetail, { compName = null, compId = null, label = 'Node Timeline — undo patch' } = {}) {
   const inverse = receiptOrDetail?.inverse;
   if (!Array.isArray(inverse) || inverse.length === 0) return null;
   // No revision guard: the project has necessarily moved — we moved it.
-  return applyPatchCall(inverse, { compName, label, revision: -1 });
+  return applyPatchCall(inverse, { compName, compId, label, revision: -1 });
 }
 
 // True when every change in the patch can be put back. A patch that deleted a

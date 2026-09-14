@@ -51,6 +51,10 @@ test('an unimplemented op is refused here, not discovered in After Effects', () 
     (e) => e instanceof PatchError && /not implemented/.test(e.message));
 });
 
+test('a patch call carries the inspected comp id to the host guard', () => {
+  assert.match(applyPatchCall([], { compId: 42 }), /,-1,42\)$/);
+});
+
 // ---- applying --------------------------------------------------------------
 
 test('a property write lands, and costs one undo group', () => {
@@ -223,6 +227,42 @@ test('a patch that deletes a layer reports itself as NOT fully reversible', () =
   const r = run(ae, [{ op: 'deleteLayer', node: 'd', nativeId: 1, name: 'Doomed' }]);
   assert.equal(r.invertible, false);
   assert.equal(ae.comp.byTag('d'), undefined);
+});
+
+test('reorder uses the shared tag parser and preserves unmanaged layer slots', () => {
+  const ae = makeAE();
+  ae.comp.add('A', { comment: tagFor('a') });
+  ae.comp.add('User layer');
+  ae.comp.add('B', { comment: tagFor('b') });
+  ae.comp.add('C', { comment: tagFor('c') });
+
+  const receipt = run(ae, [{
+    op: 'reorder', tags: ['c', 'a', 'b'], current: ['a', 'b', 'c'],
+  }]);
+
+  assert.equal(receipt.applied, 1);
+  assert.deepEqual(ae.comp._layers.map((layer) => layer.name), ['C', 'User layer', 'A', 'B']);
+});
+
+test('rename and delete patches can include reorder without failing', () => {
+  const ae = makeAE();
+  ae.comp.add('A', { comment: tagFor('a') });
+  ae.comp.add('B', { comment: tagFor('b') });
+  ae.comp.add('C', { comment: tagFor('c') });
+
+  const rename = run(ae, [
+    { op: 'setName', node: 'a', from: 'A', to: 'Renamed A' },
+    { op: 'reorder', tags: ['c', 'a', 'b'], current: ['a', 'b', 'c'] },
+  ]);
+  assert.equal(rename.applied, 2);
+  assert.deepEqual(ae.comp._layers.map((layer) => layer.name), ['C', 'Renamed A', 'B']);
+
+  const remove = run(ae, [
+    { op: 'reorder', tags: ['b', 'c', 'a'], current: ['c', 'a', 'b'] },
+    { op: 'deleteLayer', node: 'a', nativeId: ae.comp.byTag('a').id, name: 'Renamed A' },
+  ]);
+  assert.equal(remove.applied, 2);
+  assert.deepEqual(ae.comp._layers.map((layer) => layer.name), ['B', 'C']);
 });
 
 // ---- the whole pipeline ----------------------------------------------------

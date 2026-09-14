@@ -1,230 +1,19 @@
-// M1 — the panel shell.
-//
-// A canvas over the P1 graph model, docked in After Effects. What it does NOT
-// do yet is write: M3 attaches the reconciler. The handshake below proves the
-// transport is live (it reads `app.project.revision` through the same
-// `NTL_Revision` entry point P1.4's drift gate uses), and the status line is
-// explicit that nothing is being written - a panel that looked connected while
-// silently doing nothing would be the worst of both.
-
-import { useCallback, useEffect, useRef, useState } from 'react';
-
+import SyncPanels from './components/SyncPanels.jsx';
+// Presentational shell; lifecycle and host synchronization live in the hook.
 import Canvas from './canvas/Canvas.jsx';
-import { Outliner } from './components/Outliner';
-import { createHost } from './bridge/cep.js';
-import { createGraph, addNode, addEffect, BLEND_MODES, hydrateFromComp, addEdge } from '../../src/graph.js';
-import { nextNodeId, renameNode, removeNode } from '../../src/view.js';
-import { revisionCall, parseRevision } from '../../src/drift.js';
-import { readCompCall, parseCompState } from '../../src/reader.js';
+import Inspector from './components/Inspector.jsx';
+import { Outliner } from './components/Outliner.jsx';
+import { usePanelLifecycle } from './hooks/usePanelLifecycle.js';
 import './App.css';
 
-// Something to look at on first run. Deliberately a graph and not a comp: M1 is
-// the canvas over the model, and reading an existing comp into a graph is M3's
-// problem (and, for a hand-built comp, explicitly out of the MVP).
-function seedGraph(graph) {
-  addNode(graph, { id: 'n1', name: 'Background', kind: 'solid',
-    props: { position: [960, 540], scale: [100, 100], opacity: 100 }, ui: { x: 40, y: 40 } });
-  addNode(graph, { id: 'n2', name: 'Card', kind: 'solid',
-    props: { position: [960, 540], scale: [100, 100], opacity: 100 },
-    effects: [{ matchName: 'ADBE Fill', name: 'Fill', params: { 'ADBE Fill-0002': [1, 0.5, 0, 1] } }],
-    ui: { x: 360, y: 40 } });
-  addNode(graph, { id: 'n3', name: 'Controller', kind: 'null',
-    props: { position: [960, 540], rotation: 0 }, ui: { x: 360, y: 300 } });
-  return graph;
-}
+const LINK_LABEL = {
+  live: 'Synced', reading: 'Reading', writing: 'Writing',
+  changed: 'AE changed', blocked: 'Blocked', browser: 'Offline',
+  error: 'Error', checking: 'Checking',
+};
 
 export default function App() {
-  // The graph is a plain object held in a ref, not React state: it is the source
-  // of truth for the comp, and cloning it on every keystroke to satisfy React's
-  // identity checks would make "the graph" an ambiguous thing. `version` is what
-  // tells React something changed.
-  const graph = useRef(createGraph()).current;
-  const [version, setVersion] = useState(0);
-  const [selected, setSelected] = useState(null);
-  const [message, setMessage] = useState(null);
-  const [contextMenu, setContextMenu] = useState(null);
-  const [host] = useState(() => createHost());
-  const [link, setLink] = useState({ state: 'checking', detail: '' });
-
-  const redraw = useCallback(() => setVersion((v) => v + 1), []);
-
-  const handlePaneContextMenu = useCallback((event) => {
-    event.preventDefault();
-    setContextMenu({ x: event.clientX, y: event.clientY });
-  }, []);
-
-  const closeContextMenu = useCallback(() => setContextMenu(null), []);
-
-  const addEffectNode = useCallback((matchName, name, props = {}, position) => {
-    const id = nextNodeId(graph);
-    addNode(graph, {
-      id,
-      kind: 'effect',
-      name: `${name} ${id}`,
-      matchName,
-      props,
-      ui: { x: position.x, y: position.y }
-    });
-    redraw();
-  }, [graph, redraw]);
-
-  const addExpressionNode = useCallback((position) => {
-    const id = nextNodeId(graph);
-    addNode(graph, {
-      id,
-      kind: 'expression',
-      name: `Expr ${id}`,
-      expression: 'value;',
-      ui: { x: position.x, y: position.y }
-    });
-    redraw();
-  }, [graph, redraw]);
-
-  const ping = useCallback(async () => {
-    if (!host.connected) {
-      setLink({ state: 'browser', detail: 'no CEP host - the canvas works, After Effects is not there' });
-      return;
-    }
-    try {
-      const revision = parseRevision(await host.evalScript(revisionCall()));
-      setLink({ state: 'live', detail: `project revision ${revision}` });
-    } catch (e) {
-      // The host answered with something that is not a revision. Almost always
-      // the bundled host.jsx failing to load, which is worth saying plainly.
-      setLink({ state: 'error', detail: e.message });
-    }
-  }, [host]);
-
-  // Wire M3 write loop
-  const loopRef = useRef(null);
-  useEffect(() => {
-    if (!host.connected) {
-      seedGraph(graph);
-      redraw();
-      return;
-    }
-    
-    // M4 Phase D: hydrate the graph from the comp on startup before attaching loop
-    host.evalScript(readCompCall({ includeEffects: true })).then((json) => {
-      const compState = parseCompState(json);
-      hydrateFromComp(graph, compState);
-      
-      // If the comp was totally empty of tagged layers, fall back to seed
-      if (Object.keys(graph.nodes).length === 0) {
-        seedGraph(graph);
-      }
-      
-      redraw();
-      
-      import('../../src/loop.js').then(({ createWriteLoop }) => {
-        loopRef.current = createWriteLoop({ 
-          host, 
-          graph, 
-          includeEffects: true,
-          onSync: (status) => setLink({ state: 'live', detail: status })
-        });
-        // Initial flush
-        loopRef.current.touch();
-      });
-    }).catch(e => {
-      console.error('Failed to hydrate on startup:', e);
-      setLink({ state: 'error', detail: e.message });
-    });
-    
-    return () => loopRef.current?.close();
-  }, [host, graph, redraw]);
-
-  useEffect(() => { void ping(); }, [ping]);
-
-  const onChanged = useCallback(({ structural }) => {
-    if (structural) redraw();
-    loopRef.current?.touch();
-  }, [redraw]);
-
-  const onGestureStart = useCallback(() => {
-    loopRef.current?.gesture();
-  }, []);
-
-  const onGestureEnd = useCallback(() => {
-    loopRef.current?.endGesture();
-  }, []);
-
-  const addLayer = useCallback((kind, position) => {
-    const id = nextNodeId(graph);
-    const names = {
-      solid: 'Solid', null: 'Null', text: 'Text', shape: 'Shape',
-      footage: 'Footage', precomp: 'Precomp', camera: 'Camera', light: 'Light',
-    };
-    const baseProps = (kind === 'null' || kind === 'camera' || kind === 'light')
-      ? { position: [960, 540], rotation: 0 }
-      : { position: [960, 540], scale: [100, 100], opacity: 100 };
-      
-    // ReactFlow positions are slightly offset by the canvas transform, but 
-    // for MVP absolute mouse coords are close enough for a context menu drop.
-    const x = position?.x ?? (40 + (Object.keys(graph.nodes).length % 4) * 300);
-    const y = position?.y ?? (40 + Math.floor(Object.keys(graph.nodes).length / 4) * 260);
-
-    addNode(graph, {
-      id,
-      kind,
-      name: `${names[kind] || 'Layer'} ${id}`,
-      props: baseProps,
-      ui: { x, y },
-    });
-    redraw();
-  }, [graph, redraw]);
-
-  const rename = useCallback(() => {
-    if (!selected) return;
-    const wanted = window.prompt('Layer name', graph.nodes[selected]?.name ?? '');
-    if (wanted === null) return;
-    // Expressions address layers by name (S6), so the view layer makes it unique
-    // rather than letting two layers answer to one expression.
-    const settled = renameNode(graph, selected, wanted);
-    if (settled !== wanted) setMessage(`named "${settled}" - two layers cannot share a name`);
-    redraw();
-  }, [graph, selected, redraw]);
-
-  const remove = useCallback(() => {
-    if (!selected) return;
-    removeNode(graph, selected);
-    setSelected(null);
-    redraw();
-  }, [graph, selected, redraw]);
-
-  // M2: add an effect to the selected node by matchName
-  const addFx = useCallback(() => {
-    if (!selected) return;
-    const matchName = window.prompt('Effect matchName (e.g. ADBE Gaussian Blur 2)');
-    if (!matchName) return;
-    const name = window.prompt('Display name', matchName);
-    addEffect(graph, selected, { matchName, name: name || matchName, params: {} });
-    redraw();
-    setMessage(`added effect "${name || matchName}" to ${graph.nodes[selected]?.name}`);
-  }, [graph, selected, redraw]);
-
-  // M2: set blend mode on the selected node
-  const setBlend = useCallback(() => {
-    if (!selected) return;
-    const node = graph.nodes[selected];
-    if (!node) return;
-    const mode = window.prompt(
-      `Blend mode (${BLEND_MODES.join(', ')})`,
-      node.blendMode || 'normal',
-    );
-    if (mode === null) return;
-    if (!BLEND_MODES.includes(mode)) {
-      setMessage(`unknown blend mode "${mode}"`);
-      return;
-    }
-    node.blendMode = mode;
-    redraw();
-  }, [graph, selected, redraw]);
-
-  const counts = {
-    nodes: Object.keys(graph.nodes).length,
-    edges: Object.keys(graph.edges).length,
-  };
+  const { graph, version, selected, setSelected, message, setMessage, contextMenu, host, link, startup, drift, storageRef, saveStatus, saveGraph, canEdit, commands, handlePaneContextMenu, closeContextMenu, addEffectNode, addExpressionNode, ping, onGestureStart, onGestureEnd, addLayer, rename, remove, addFx, setBlend, counts, startEmptyGraph, createNewComp, inspectActiveComp, reviewSaved, keepGraph, useAeChanges } = usePanelLifecycle();
 
   return (
     <div className="ntl-app">
@@ -232,36 +21,39 @@ export default function App() {
         <span className="ntl-title">Node Timeline</span>
 
         <div className="ntl-actions">
-          <button onClick={() => addLayer('solid')}>+ Solid</button>
-          <button onClick={() => addLayer('null')}>+ Null</button>
-          <button onClick={() => addLayer('text')}>+ Text</button>
-          <button onClick={() => addLayer('shape')}>+ Shape</button>
-          <button onClick={rename} disabled={!selected}>Rename</button>
-          <button onClick={remove} disabled={!selected}>Delete</button>
-          <button onClick={addFx} disabled={!selected}>+ Effect</button>
-          <button onClick={setBlend} disabled={!selected}>Blend</button>
+          <button onClick={() => addLayer('solid')} disabled={!canEdit}>+ Solid</button>
+          <button onClick={() => addLayer('null')} disabled={!canEdit}>+ Null</button>
+          <button onClick={() => addLayer('text')} disabled={!canEdit}>+ Text</button>
+          <button onClick={() => addLayer('shape')} disabled={!canEdit}>+ Shape</button>
+          <button onClick={rename} disabled={!canEdit || !selected}>Rename</button>
+          <button onClick={remove} disabled={!canEdit || !selected}>Delete</button>
+          <button onClick={addFx} disabled={!canEdit || !selected}>+ Effect</button>
+          <button onClick={setBlend} disabled={!canEdit || !selected}>Blend</button>
+          <button onClick={saveGraph} disabled={!storageRef.current || !canEdit} title={saveStatus}>Save Graph</button>
         </div>
 
         <span className="ntl-count">{counts.nodes} nodes · {counts.edges} edges</span>
 
         <button className={`ntl-link is-${link.state}`} onClick={ping} title={link.detail}>
           <span className="ntl-dot" />
-          {link.state === 'live' ? 'After Effects' : link.state}
+          {LINK_LABEL[link.state] || link.state}
         </button>
       </header>
 
       <div className="ntl-canvas" onClick={closeContextMenu}>
         <Canvas
           graph={graph}
+          commands={commands}
           version={version}
-          onChanged={onChanged}
+          selectedId={selected}
+          editable={canEdit}
           onError={setMessage}
           onSelect={setSelected}
           onPaneContextMenu={handlePaneContextMenu}
           onGestureStart={onGestureStart}
           onGestureEnd={onGestureEnd}
         />
-        {contextMenu && (
+        {canEdit && contextMenu && (
           <div className="ntl-context-menu" style={{ top: contextMenu.y, left: contextMenu.x }}>
             <div className="ntl-menu-group">Layers</div>
             <button onClick={() => { addLayer('solid', contextMenu); closeContextMenu(); }}>Solid</button>
@@ -278,10 +70,13 @@ export default function App() {
             <button onClick={() => { addExpressionNode(contextMenu); closeContextMenu(); }}>Expression</button>
           </div>
         )}
-        <Outliner graph={graph} version={version} onChanged={onChanged} />
+        <Outliner graph={graph} commands={commands} version={version} editable={canEdit} selected={selected} onSelect={setSelected} />
+        <Inspector graph={graph} selected={selected} commands={commands} editable={canEdit} onError={setMessage} />
+        <SyncPanels {...{ host, startup, drift, startEmptyGraph, reviewSaved, createNewComp, inspectActiveComp, keepGraph, useAeChanges }} />
       </div>
 
       <footer className="ntl-foot">
+        <span title={storageRef.current?.path}>{saveStatus}</span>
         <span className="ntl-foot-detail">{link.detail}</span>
         {message && (
           <button className="ntl-message" onClick={() => setMessage(null)} title="dismiss">
@@ -292,4 +87,3 @@ export default function App() {
     </div>
   );
 }
-

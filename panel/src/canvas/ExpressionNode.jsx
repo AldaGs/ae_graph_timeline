@@ -1,8 +1,11 @@
-import { memo } from 'react';
+import { memo, useEffect, useState } from 'react';
 import { Handle, Position } from 'reactflow';
 
 function ExpressionNode({ id, data, selected }) {
   const { name, expression = '' } = data;
+  const [draft, setDraft] = useState(expression);
+
+  useEffect(() => setDraft(expression), [expression]);
 
   return (
     <div className={`ntl-node ntl-node-expression${selected ? ' is-selected' : ''}`}>
@@ -13,16 +16,22 @@ function ExpressionNode({ id, data, selected }) {
 
       <div className="ntl-expr-body">
         <textarea 
-          className="ntl-expr-text nodrag" 
-          value={expression} 
-          onChange={(e) => data.onExpressionChange?.(e.target.value)}
+          className="ntl-expr-text nodrag nopan nowheel"
+          readOnly={data.editable === false}
+          value={draft}
+          onChange={(e) => {
+            setDraft(e.target.value);
+            data.onExpressionChange?.(e.target.value);
+          }}
+          onPointerDown={(e) => e.stopPropagation()}
+          onKeyDown={(e) => e.stopPropagation()}
           onFocus={() => data.onExpressionFocus?.()}
           onBlur={() => data.onExpressionBlur?.()}
           placeholder="value;" 
         />
       </div>
 
-      <Handle type="source" position={Position.Right} id="out:out" className="ntl-handle-expr" />
+      <Handle type="source" position={Position.Right} id="expression:out" className="ntl-handle-expr" aria-label="Expression output" />
     </div>
   );
 }

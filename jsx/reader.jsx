@@ -234,7 +234,14 @@ function ntlrReadComp(comp, includeEffects) {
 
 // ------------------------------------------------------------- entry points
 
-function ntlrFindComp(name) {
+function ntlrFindComp(name, compId) {
+    if (compId !== undefined && compId !== null) {
+        for (var c = 1; c <= app.project.numItems; c++) {
+            var candidate = app.project.item(c);
+            if (candidate instanceof CompItem && candidate.id === compId) return candidate;
+        }
+        return null;
+    }
     if (name) {
         for (var i = 1; i <= app.project.numItems; i++) {
             var it = app.project.item(i);
@@ -246,16 +253,61 @@ function ntlrFindComp(name) {
     return (a && a instanceof CompItem) ? a : null;
 }
 
-function NTL_ReadComp(compName, includeEffects) {
+function NTL_ReadComp(compName, includeEffects, compId) {
     try {
-        var comp = ntlrFindComp(compName);
+        var comp = ntlrFindComp(compName, compId);
         if (!comp) {
             return ntlrVal({ ok: false, message: 'no composition (open one, or pass a name)' });
+        }
+        if (compId !== undefined && compId !== null) {
+            var active = app.project.activeItem;
+            if (!active || !(active instanceof CompItem) || active.id !== compId) {
+                return ntlrVal({ ok: false, message: 'active composition changed',
+                                 expectedCompId: compId,
+                                 actualCompId: active && active instanceof CompItem ? active.id : null });
+            }
         }
         $.hiresTimer; // reading it once is how you reset it
         var state = ntlrReadComp(comp, includeEffects ? true : false);
         state.elapsedMs = $.hiresTimer / 1000;
         return ntlrVal(state);
+    } catch (e) {
+        return ntlrVal({ ok: false, message: String(e && (e.message || e)), line: e && e.line });
+    }
+}
+
+// A cheap identity check for the panel lifecycle. Selection does not move
+// app.project.revision, so the revision gate cannot detect a comp switch.
+function NTL_ActiveComp() {
+    try {
+        var active = app.project && app.project.activeItem;
+        if (!active || !(active instanceof CompItem)) {
+            return ntlrVal({ ok: true, active: false });
+        }
+        return ntlrVal({ ok: true, active: true, compName: active.name, compId: active.id });
+    } catch (e) {
+        return ntlrVal({ ok: false, message: String(e && (e.message || e)), line: e && e.line });
+    }
+}
+
+// Open AE's own New Composition dialog so presets and every native composition
+// option remain available. executeCommand blocks until the user confirms or
+// cancels the modal dialog.
+function NTL_ShowNewCompDialog() {
+    try {
+        if (!app.project) app.newProject();
+        var beforeItems = app.project.numItems;
+        // Adobe recommends fixed command IDs in production because
+        // findMenuCommandId is language-package dependent. 2000 is AE's New
+        // Composition command; the name lookup is a defensive fallback.
+        var commandId = app.findMenuCommandId('New Composition...') || 2000;
+        if (!commandId) throw new Error('After Effects did not expose the New Composition command');
+        app.executeCommand(commandId);
+
+        var active = app.project.activeItem;
+        var created = app.project.numItems > beforeItems && active && active instanceof CompItem;
+        if (!created) return ntlrVal({ ok: true, created: false });
+        return ntlrVal({ ok: true, created: true, compName: active.name, compId: active.id });
     } catch (e) {
         return ntlrVal({ ok: false, message: String(e && (e.message || e)), line: e && e.line });
     }
@@ -269,4 +321,10 @@ function NTL_Revision() {
     } catch (e) {
         return ntlrVal({ ok: false, message: String(e && (e.message || e)) });
     }
+}
+
+function NTL_ProjectIdentity() {
+    var active = app.project && app.project.activeItem;
+    return ntlrVal({ projectPath: app.project && app.project.file ? app.project.file.fsName : null,
+        compId: active && active instanceof CompItem ? active.id : null });
 }
