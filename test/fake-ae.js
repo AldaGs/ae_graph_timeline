@@ -128,6 +128,10 @@ export class FakeLayer {
     this.nullLayer = kind === 'null';
     this.source = null;
     this.enabled = true;
+    // View state, not project state: After Effects neither marks the project
+    // modified nor moves app.project.revision when this changes, which is what
+    // lets the panel mirror its own selection onto a click.
+    this.selected = false;
     this.inPoint = 0;
     this.outPoint = 5;
     this.removed = false;
@@ -235,6 +239,12 @@ export function makeAE() {
 
   const app = {
     project,
+    // Menu commands the panel reaches for. Recorded rather than performed: what
+    // a test can check is that the right command was asked for, not what After
+    // Effects would then put on screen.
+    commands: [],
+    findMenuCommandId(name) { return { 'Effect Controls': 2163, 'New Composition...': 2000 }[name] ?? 0; },
+    executeCommand(id) { app.commands.push(id); },
     beginUndoGroup(label) {
       undo.open++;
       undo.maxOpen = Math.max(undo.maxOpen, undo.open);
@@ -288,7 +298,7 @@ export function makeAE() {
   project.item = (i) => (i === 1 ? comp : null);
   project.layerByID = (id) => comp._layers.find((l) => l.id === id) ?? null;
 
-  for (const file of ['common.jsx', 'reader.jsx', 'patch.jsx']) {
+  for (const file of ['common.jsx', 'reader.jsx', 'patch.jsx', 'select.jsx']) {
     runInContext(readFileSync(join(JSX, file), 'utf8'), ctx, { filename: file });
   }
 

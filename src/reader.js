@@ -54,7 +54,41 @@ export function parseActiveComp(jsonText) {
   if (payload.active && (typeof payload.compName !== 'string' || !isFiniteNumber(payload.compId))) {
     throw new ReadError('active comp check did not identify the composition', payload);
   }
+  // An unsaved project has no file, and that is a fact, not a failure. It is
+  // normalized to null so a caller never has to tell "" from undefined.
+  payload.projectPath = typeof payload.projectPath === 'string' && payload.projectPath.length
+    ? payload.projectPath : null;
   return payload;
+}
+
+/**
+ * Where the graph's sidecar file belongs, given a project and a comp.
+ *
+ * One function, because two places computing this string is two places for it
+ * to drift - and a sidecar written to a path nothing later reads is a graph the
+ * user believes is saved.
+ */
+export const graphFilePathFor = (projectPath, compId) =>
+  (projectPath && compId !== null && compId !== undefined
+    ? `${projectPath}.comp-${compId}.ntl` : null);
+
+/**
+ * Whether the project moved out from under the panel's sidecar.
+ *
+ * Save As changes app.project.file and nothing else: the comp keeps its id, the
+ * graph keeps every node, and the sidecar stays next to the OLD project where
+ * reopening the new one will never find it.
+ *
+ * @returns 'same' | 'moved' | 'saved' | 'unsaved' | 'untracked'
+ */
+export function classifyProjectPath(expected, active) {
+  const now = active?.projectPath ?? null;
+  if (expected === undefined) return 'untracked';
+  const was = expected ?? null;
+  if (was === now) return 'same';
+  if (was === null) return 'saved';      // an unsaved project has just been saved
+  if (now === null) return 'unsaved';    // closed, or a new project took its place
+  return 'moved';                        // Save As
 }
 
 export function classifyActiveComp(expected, active) {

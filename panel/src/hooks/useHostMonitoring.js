@@ -1,9 +1,13 @@
 import { useEffect } from 'react';
-import { activeCompCall, parseActiveComp, classifyActiveComp } from '../../../src/reader.js';
+import {
+  activeCompCall, parseActiveComp, classifyActiveComp, classifyProjectPath,
+} from '../../../src/reader.js';
 import { isHostUnavailableReply } from '../bridge/cep.js';
 
 // Observation never authorizes writes to a different active composition.
-export function useHostMonitoring({ host, startup, loopRef, activeCompRef, loopEventsRef, inspectRef, setLink, setSelected, setContextMenu, setStartup }) {
+export function useHostMonitoring({ host, startup, loopRef, activeCompRef, loopEventsRef,
+                                   inspectRef, setLink, setSelected, setContextMenu, setStartup,
+                                   rebindStorage = () => {}, storageRef = { current: null } }) {
   // M4.4 groundwork: observe AE while ready. The loop's revision gate makes an
   // unchanged poll cheap, and the CEP bridge serializes it with writes.
   useEffect(() => {
@@ -62,6 +66,11 @@ export function useHostMonitoring({ host, startup, loopRef, activeCompRef, loopE
     let cancelled = false;
     let checking = false;
     let transientFailures = 0;
+    // Tracked here, not derived from the storage, so the transition that matters
+    // most is not invisible: a project that was UNSAVED at startup has no
+    // sidecar at all, and saving it for the first time is exactly when one
+    // becomes possible.
+    let seenPath = storageRef.current?.identity?.projectPath ?? null;
 
     const checkActiveComp = async () => {
       const loopState = loopRef.current?.state;
@@ -101,6 +110,22 @@ export function useHostMonitoring({ host, startup, loopRef, activeCompRef, loopE
             // deletion is detected without reopening the extension.
             window.setTimeout(() => void inspectRef.current?.(), 1000);
           }
+          return;
+        }
+
+        // The comp is still the one being reconciled, so the only identity left
+        // to check is the project's own file - which Save As moves, taking the
+        // graph's sidecar out of reach of the project it belongs to.
+        const moved = classifyProjectPath(seenPath, active);
+        if (moved === 'moved' || moved === 'saved' || moved === 'unsaved') {
+          seenPath = active.projectPath ?? null;
+          rebindStorage(seenPath);
+          if (moved !== 'unsaved') {
+            setLink({ state: 'live',
+              detail: moved === 'moved'
+                ? 'The project moved — the graph now saves alongside it'
+                : 'The project was saved — graph storage is enabled' });
+          }
         }
       } catch (e) {
         if (!cancelled) {
@@ -123,6 +148,7 @@ export function useHostMonitoring({ host, startup, loopRef, activeCompRef, loopE
       cancelled = true;
       window.clearInterval(handle);
     };
-  }, [host, loopRef, activeCompRef, loopEventsRef, inspectRef, setLink, setSelected, setContextMenu, setStartup]);
+  }, [host, loopRef, activeCompRef, loopEventsRef, inspectRef, setLink, setSelected,
+      setContextMenu, setStartup, rebindStorage, storageRef]);
 
 }

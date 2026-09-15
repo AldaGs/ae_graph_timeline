@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createGraph, addNode, addEdge } from '../src/graph.js';
 import { serializeGraph, parseGraph, createGraphStore, inspectSavedGraph } from '../src/persistence.js';
+import { classifyProjectPath, graphFilePathFor } from '../src/reader.js';
 
 test('reopen tolerates observed AE precision rounding and rebinds a unique tag', () => {
   const graph = createGraph('Comp 1');
@@ -56,4 +57,70 @@ test('interrupted writes preserve the last file and corruption recovers the back
   files.set('shot.ntl', '{broken');
   assert.equal(store.load('shot.ntl').recovered, true);
   assert.equal(store.load('shot.ntl').document.graph.compName, 'First');
+});
+
+// ---- M4.9: the sidecar follows the project ---------------------------------
+
+// A filesystem in a Map, so a move can be checked by looking at what exists.
+function memoryFs() {
+  const files = new Map();
+  return {
+    files,
+    existsSync: (p) => files.has(p),
+    readFileSync: (p) => {
+      if (!files.has(p)) throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
+      return files.get(p);
+    },
+    writeFileSync: (p, text) => files.set(p, text),
+    renameSync: (from, to) => { files.set(to, files.get(from)); files.delete(from); },
+  };
+}
+
+test('a graph saved after Save As lands beside the new project, not the old one', () => {
+  // The symptom: saving the .aep somewhere else left the .ntl next to the OLD
+  // project. The graph is already in memory, so nothing has to be copied - the
+  // storage is re-pointed and written again at the new path.
+  const fs = memoryFs();
+  const store = createGraphStore(fs);
+  const graph = createGraph('Shot');
+  addNode(graph, { id: 'n1', name: 'Solid n1', props: { opacity: 100 } });
+
+  const was = graphFilePathFor('C:/old/shot.aep', 4);
+  store.save(was, serializeGraph(graph, { projectPath: 'C:/old/shot.aep', compId: 4 }));
+  assert.ok(fs.existsSync(was));
+
+  assert.equal(classifyProjectPath('C:/old/shot.aep',
+    { active: true, compId: 4, projectPath: 'C:/new/shot.aep' }), 'moved');
+
+  const now = graphFilePathFor('C:/new/shot.aep', 4);
+  store.save(now, serializeGraph(graph, { projectPath: 'C:/new/shot.aep', compId: 4 }));
+
+  const reopened = store.load(now);
+  assert.equal(reopened.document.identity.projectPath, 'C:/new/shot.aep');
+  assert.deepEqual(Object.keys(reopened.document.graph.nodes), ['n1']);
+  // The old one is left alone: that .aep may still exist, and it still has its
+  // graph. A move is not a deletion.
+  assert.ok(fs.existsSync(was));
+});
+
+test('a sidecar already at the new path is identified rather than overwritten', () => {
+  // Saving over an .aep whose sidecar belongs to a different graph would destroy
+  // it. The panel re-points the storage - so Save Graph can replace it
+  // deliberately - but writes nothing automatically, and this is the check that
+  // tells the two cases apart.
+  const fs = memoryFs();
+  const store = createGraphStore(fs);
+  const mine = createGraph('Mine');
+  addNode(mine, { id: 'n1', name: 'Mine n1', props: { opacity: 100 } });
+  const theirs = createGraph('Theirs');
+  addNode(theirs, { id: 'n9', name: 'Theirs n9', props: { opacity: 50 } });
+
+  const path = graphFilePathFor('C:/new/shot.aep', 4);
+  const identity = { projectPath: 'C:/new/shot.aep', compId: 4 };
+  store.save(path, serializeGraph(theirs, identity));
+  const occupant = store.load(path);
+
+  const myGraphId = JSON.parse(serializeGraph(mine, identity)).graphId;
+  assert.notEqual(occupant.document.graphId, myGraphId, 'a different graph is in the way');
+  assert.equal(occupant.document.graph.nodes.n9.name, 'Theirs n9', 'and it is still intact');
 });

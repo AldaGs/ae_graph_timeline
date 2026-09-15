@@ -10,7 +10,11 @@ import { revisionCall, parseRevision, compareSnapshots, snapshot } from '../../.
 import { captureCompState, classifyDrift } from '../../../src/reconcile.js';
 import { createGraphStore, inspectSavedGraph } from '../../../src/persistence.js';
 import {
+  selectionTagsFor, selectLayersCall, parseSelection, showEffectControlsCall,
+} from '../../../src/select.js';
+import {
   readCompCall, parseCompState, newCompDialogCall, parseNewCompDialog,
+  graphFilePathFor,
 } from '../../../src/reader.js';
 
 // Browser-only fixture. A live AE comp is never seeded automatically.
@@ -125,7 +129,7 @@ export function usePanelLifecycle() {
         const nodeRequire = window.cep_node?.require || window.require;
         if (identity.projectPath && identity.compId && nodeRequire) {
           const store = createGraphStore(nodeRequire('fs'));
-          const path = `${identity.projectPath}.comp-${identity.compId}.ntl`;
+          const path = graphFilePathFor(identity.projectPath, identity.compId);
           saved = store.load(path);
           if (saved && (saved.document.identity.projectPath !== identity.projectPath
               || saved.document.identity.compId !== identity.compId)) throw new Error('Saved graph belongs to another project or composition');
@@ -257,6 +261,87 @@ export function usePanelLifecycle() {
     };
   }, [host, graph, redraw, cloneGraph, saveGraph, flushSave]);
 
+  // Selecting a node selects its layer.
+  //
+  // After Effects' Effect Controls and Properties panels follow the layer
+  // SELECTION and nothing else, so a node selected on the canvas has to become
+  // a selected layer or those panels cannot know what the user is looking at -
+  // which meant a node carrying effects could be selected in the graph with no
+  // way to reach those effects in the application that renders them.
+  //
+  // Selection is view state: it takes no undo entry and does not move
+  // app.project.revision, so this cannot disturb the write loop or the drift
+  // guard. It is still coalesced, because arrowing through the outliner would
+  // otherwise be one host round trip per keystroke.
+  useEffect(() => {
+    if (!host.connected || startup.state !== 'ready') return;
+    const compId = activeCompRef.current?.compId;
+    if (!compId) return;
+    const handle = window.setTimeout(async () => {
+      // Never mid-patch: the loop is holding the transport, and a selection is
+      // never worth waiting behind a write for.
+      const state = loopRef.current?.state;
+      if (host.busy || state?.inFlight || state?.gestureDepth > 0) return;
+      const tags = selectionTagsFor(graph, selected === null ? [] : [selected]);
+      try {
+        parseSelection(await host.evalScript(selectLayersCall(tags, { compId })));
+      } catch {
+        // A selection that did not land is not worth a message: the comp may
+        // have changed under it, and the identity watch reports that already.
+      }
+    }, 80);
+    return () => window.clearTimeout(handle);
+  }, [host, startup.state, graph, selected, version]);
+
+  // Opening a panel is a decision about the user's workspace, so it happens on
+  // an explicit action and never as a side effect of clicking a node.
+  const showEffectControls = useCallback(async () => {
+    if (!host.connected) return;
+    try {
+      parseSelection(await host.evalScript(showEffectControlsCall()));
+    } catch (e) { setMessage(e.message); }
+  }, [host]);
+
+  // The project moved, and the graph's sidecar file did not.
+  //
+  // `Save As` changes nothing the reconciler cares about - the comp keeps its
+  // id and the graph keeps every node - but the sidecar is named after the
+  // project file, so it stays next to the OLD .aep where reopening the new one
+  // will never find it. The graph is already in memory, so nothing has to be
+  // copied: the storage is re-pointed and saved again at the new path.
+  //
+  // With one refusal. A sidecar ALREADY at the new path, holding a different
+  // graph, belongs to whatever was saved there before, and overwriting it
+  // without being asked would destroy someone's work. The storage is still
+  // re-pointed - so the Save Graph button writes there deliberately - but
+  // nothing is written automatically.
+  const rebindStorage = useCallback((projectPath) => {
+    const compId = activeCompRef.current?.compId;
+    const path = graphFilePathFor(projectPath, compId);
+    if (!path) {
+      storageRef.current = null;
+      setSaveStatus('The project is unsaved — save it to store this graph');
+      return;
+    }
+    const nodeRequire = window.cep_node?.require || window.require;
+    if (!nodeRequire) return;
+    const previous = storageRef.current;
+    if (previous?.path === path) return;
+    const store = previous?.store || createGraphStore(nodeRequire('fs'));
+    const identity = { projectPath, compId };
+    let existing = null;
+    try {
+      existing = store.load(path);
+    } catch { /* unreadable is treated the same as occupied: do not auto-save */ }
+    storageRef.current = { store, path, identity, graphId: previous?.graphId };
+    const occupied = existing && existing.document.graphId !== previous?.graphId;
+    if (occupied) {
+      setSaveStatus('A different graph is already saved for this project — use Save Graph to replace it');
+      return;
+    }
+    saveGraph();
+  }, [storageRef, setSaveStatus, saveGraph, activeCompRef]);
+
   // Drift that does not invalidate an identity is the user editing their own
   // comp, and the graph adopts it rather than asking who is in charge.
   //
@@ -328,7 +413,8 @@ export function usePanelLifecycle() {
     return () => { reconcileHistoryRef.current = null; };
   }, [restoreGraph]);
 
-  useHostMonitoring({ host, startup, loopRef, activeCompRef, loopEventsRef, inspectRef, setLink, setSelected, setContextMenu, setStartup });
+  useHostMonitoring({ host, startup, loopRef, activeCompRef, loopEventsRef, inspectRef,
+    setLink, setSelected, setContextMenu, setStartup, rebindStorage, storageRef });
 
   useEffect(() => { void ping(); }, [ping]);
 
@@ -449,5 +535,5 @@ export function usePanelLifecycle() {
     }
   }, [drift, graph, restoreGraph, saveGraph]);
 
-  return { graph, version, selected, setSelected, message, setMessage, contextMenu, host, link, startup, drift, storageRef, saveStatus, saveGraph, canEdit, commands, handlePaneContextMenu, closeContextMenu, addEffectNode, addExpressionNode, ping, onGestureStart, onGestureEnd, addLayer, rename, remove, addFx, setBlend, counts, startEmptyGraph, createNewComp, inspectActiveComp, reviewSaved, keepGraph, useAeChanges };
+  return { showEffectControls, graph, version, selected, setSelected, message, setMessage, contextMenu, host, link, startup, drift, storageRef, saveStatus, saveGraph, canEdit, commands, handlePaneContextMenu, closeContextMenu, addEffectNode, addExpressionNode, ping, onGestureStart, onGestureEnd, addLayer, rename, remove, addFx, setBlend, counts, startEmptyGraph, createNewComp, inspectActiveComp, reviewSaved, keepGraph, useAeChanges };
 }

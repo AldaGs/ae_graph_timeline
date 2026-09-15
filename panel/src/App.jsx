@@ -14,7 +14,7 @@ const LINK_LABEL = {
 };
 
 export default function App() {
-  const { graph, version, selected, setSelected, message, setMessage, contextMenu, host, link, startup, drift, storageRef, saveStatus, saveGraph, canEdit, commands, handlePaneContextMenu, closeContextMenu, addEffectNode, addExpressionNode, ping, onGestureStart, onGestureEnd, addLayer, rename, remove, addFx, setBlend, counts, startEmptyGraph, createNewComp, inspectActiveComp, reviewSaved, keepGraph, useAeChanges } = usePanelLifecycle();
+  const { showEffectControls, graph, version, selected, setSelected, message, setMessage, contextMenu, host, link, startup, drift, storageRef, saveStatus, saveGraph, canEdit, commands, handlePaneContextMenu, closeContextMenu, addEffectNode, addExpressionNode, ping, onGestureStart, onGestureEnd, addLayer, rename, remove, addFx, setBlend, counts, startEmptyGraph, createNewComp, inspectActiveComp, reviewSaved, keepGraph, useAeChanges } = usePanelLifecycle();
 
   return (
     <div className="ntl-app">
@@ -30,6 +30,10 @@ export default function App() {
           <button onClick={remove} disabled={!canEdit || !selected}>Delete</button>
           <button onClick={addFx} disabled={!canEdit || !selected}>+ Effect</button>
           <button onClick={setBlend} disabled={!canEdit || !selected}>Blend</button>
+          {/* The selected node is already the selected LAYER, so AE's own
+              Effect Controls follows it. This only brings that panel forward. */}
+          <button onClick={showEffectControls} disabled={!host.connected || !selected}
+            title="Show the selected layer's effects in After Effects">Effect Controls</button>
           <button onClick={saveGraph} disabled={!storageRef.current || !canEdit} title={saveStatus}>Save Graph</button>
         </div>
 

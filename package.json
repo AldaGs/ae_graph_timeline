@@ -7,7 +7,7 @@
   "scripts": {
     "test": "node --test test/*.test.js",
     "benchmark": "node tools/benchmark.mjs",
-    "preflight": "python tools/jsx_check.py jsx/common.jsx jsx/reader.jsx jsx/patch.jsx jsx/p1-check.jsx jsx/p1b-check.jsx",
+    "preflight": "python tools/jsx_check.py jsx/common.jsx jsx/reader.jsx jsx/patch.jsx jsx/select.jsx jsx/p1-check.jsx jsx/p1b-check.jsx",
     "cep:install": "node cep-spike/install.mjs"
   }
 }

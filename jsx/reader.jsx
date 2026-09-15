@@ -309,13 +309,24 @@ function NTL_ReadComp(compName, includeEffects, compId) {
 
 // A cheap identity check for the panel lifecycle. Selection does not move
 // app.project.revision, so the revision gate cannot detect a comp switch.
+//
+// The project's own path rides along, because the graph is saved in a sidecar
+// file named after it. Save As moves the project and leaves the sidecar behind,
+// and nothing else in the panel would ever notice: the path is read once at
+// startup. Carried here rather than in a second call, since this one already
+// runs once a second and the whole point of it is cheapness.
 function NTL_ActiveComp() {
     try {
+        var path = null;
+        try {
+            if (app.project && app.project.file) path = app.project.file.fsName;
+        } catch (ePath) { /* an unsaved project has no file; not an error */ }
         var active = app.project && app.project.activeItem;
         if (!active || !(active instanceof CompItem)) {
-            return ntlrVal({ ok: true, active: false });
+            return ntlrVal({ ok: true, active: false, projectPath: path });
         }
-        return ntlrVal({ ok: true, active: true, compName: active.name, compId: active.id });
+        return ntlrVal({ ok: true, active: true, compName: active.name,
+                         compId: active.id, projectPath: path });
     } catch (e) {
         return ntlrVal({ ok: false, message: String(e && (e.message || e)), line: e && e.line });
     }

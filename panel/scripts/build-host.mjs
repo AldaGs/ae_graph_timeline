@@ -23,8 +23,8 @@ const JSX = resolve(here, '../../jsx');
 const OUT = resolve(here, '../dist/host.jsx');
 
 // Order matters: common.jsx declares the JSON emitter, the tag helpers and the
-// property table that the other two call.
-const FILES = ['common.jsx', 'reader.jsx', 'patch.jsx'];
+// property table that the others call.
+const FILES = ['common.jsx', 'reader.jsx', 'patch.jsx', 'select.jsx'];
 
 const banner = `// GENERATED - do not edit.
 //

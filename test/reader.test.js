@@ -12,7 +12,7 @@ import {
   parseCompState, normalizeCompState, ReadError, readCompCall, jsxStringLiteral,
   newCompDialogCall, parseNewCompDialog,
   activeCompCall, parseActiveComp,
-  classifyActiveComp,
+  classifyActiveComp, classifyProjectPath, graphFilePathFor,
 } from '../src/reader.js';
 import { diff } from '../src/diff.js';
 import { createGraph, addNode, addEdge, tagFor, expressionFor, expressionBody } from '../src/graph.js';
@@ -247,4 +247,46 @@ test('the comp frame is carried so a new layer can be centred in it', () => {
   const state = parseCompState(ae.eval(readCompCall()));
   assert.equal(state.width, 1920);
   assert.equal(state.height, 1080);
+});
+
+// ---- M4.9: the project's own path, so the graph's sidecar can follow it ----
+
+test('the identity check carries the project path, and normalizes an unsaved one', () => {
+  const saved = parseActiveComp(JSON.stringify(
+    { ok: true, active: true, compName: 'Shot', compId: 3, projectPath: 'C:/work/shot.aep' }));
+  assert.equal(saved.projectPath, 'C:/work/shot.aep');
+  // An unsaved project has no file. That is a fact, not a failure, and the
+  // caller must not have to tell "" from undefined.
+  assert.equal(parseActiveComp('{"ok":true,"active":true,"compName":"S","compId":3}').projectPath, null);
+  assert.equal(parseActiveComp('{"ok":true,"active":false,"projectPath":""}').projectPath, null);
+});
+
+test('the host reports the project path alongside the active comp', () => {
+  const ae = makeAE();
+  ae.project.file = { fsName: 'C:/work/shot.aep' };
+  const active = parseActiveComp(ae.eval(activeCompCall()));
+  assert.equal(active.projectPath, 'C:/work/shot.aep');
+  assert.equal(active.compId, ae.comp.id);
+});
+
+test('Save As is classified as a move, so the sidecar can be re-pointed', () => {
+  // The symptom: saving the .aep to another path left the .ntl file next to the
+  // OLD project, where reopening the new one would never find it. Nothing in the
+  // panel noticed, because the path was read once at startup.
+  const at = (projectPath) => ({ active: true, compId: 3, projectPath });
+  assert.equal(classifyProjectPath('C:/a.aep', at('C:/a.aep')), 'same');
+  assert.equal(classifyProjectPath('C:/a.aep', at('C:/b.aep')), 'moved');
+  assert.equal(classifyProjectPath(null, at('C:/b.aep')), 'saved');
+  assert.equal(classifyProjectPath('C:/a.aep', at(null)), 'unsaved');
+  assert.equal(classifyProjectPath(undefined, at('C:/b.aep')), 'untracked');
+});
+
+test('the sidecar path is derived in exactly one place', () => {
+  // Two places computing this string is two places for it to drift, and a
+  // sidecar written where nothing later reads it is a graph the user believes
+  // is saved.
+  assert.equal(graphFilePathFor('C:/work/shot.aep', 12), 'C:/work/shot.aep.comp-12.ntl');
+  assert.equal(graphFilePathFor(null, 12), null);
+  assert.equal(graphFilePathFor('C:/work/shot.aep', null), null);
+  assert.equal(graphFilePathFor('C:/work/shot.aep', undefined), null);
 });
