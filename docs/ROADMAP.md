@@ -486,7 +486,7 @@ improvement on the layer stack; it does not yet replace the curve editor.
 | M1 | Canvas transplant from ExtendBlueNode, into the CEP panel | **DONE** — `panel/`. React Flow over the P1 graph model, `src/view.js` translating between them (pure, 23 tests). Confirmed docked in AE. |
 | M2 | Node set: Source, Transform, Effect, Composite, **Relationship** (expressions as edges, per S6) | **DONE** — see `docs/M2.md`. Generic effects by matchName; blend mode as the composite node; AE label colours on cards. |
 | M3 | Reconciler wired to the canvas, debounced. Effect chaining & Expression nodes. | **CORE DONE; PANEL REPAIR/VERIFICATION OPEN** — see `docs/M3.md`. |
-| M4 | Durable identity per S3: comment anchor + cached native id | **IMPLEMENTED; MANUAL AE PASS OPEN** — creation receipts, duplicate cleanup, rebind, and startup hydration exist; persistence remains lossy. See `docs/M4.md`. |
+| M4 | Durable identity per S3: comment anchor + cached native id | **IMPLEMENTED; FUNCTIONAL LIVE MATRIX PASSED** — creation receipts, duplicate cleanup, rebind, startup hydration, undo/redo recognition, and recovery pass in AE. M4.13 remains open only for scale measurements. See `docs/M4.md`. |
 | M5 | Drift UX + capture-where-constant | **NOT DONE.** An outliner (visibility, labels, managed-layer order) was added, but it does not satisfy this milestone's drift-resolution and constant-capture outcome. |
 | M6 | Persistence: `.ntl`, schema-versioned | save, reload, reconcile against the existing comp without rebuilding |
 | M7 | One real shot, start to finish | the honest verdict on whether this beats the timeline |

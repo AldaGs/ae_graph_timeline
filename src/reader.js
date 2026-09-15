@@ -234,6 +234,9 @@ export function normalizeCompState(payload, { tolerateReadErrors = false } = {})
             index: fx.index,
             params: cleanValues(fx.params, `${where}/${fx.name}`, warnings),
             expressions: cleanExpressions(fx.expressions, `${where}/${fx.name}`, warnings),
+            expressionParams: Array.isArray(fx.expressionParams)
+              ? [...new Set(fx.expressionParams.filter((name) => typeof name === 'string' && name.length > 0))]
+              : undefined,
           }))
         : undefined,
     });

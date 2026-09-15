@@ -1,5 +1,5 @@
 // Read-only state and conflict decisions; all actions belong to the lifecycle.
-export default function SyncPanels({ host, startup, drift, startEmptyGraph, reviewSaved, createNewComp, inspectActiveComp, keepGraph, useAeChanges }) {
+export default function SyncPanels({ host, startup, drift, startEmptyGraph, reviewSaved, createNewComp, keepGraph, useAeChanges }) {
   return <>
         {host.connected && startup.state !== 'ready' && (
           <div className={`ntl-startup is-${startup.state}`} role="status">
@@ -8,7 +8,6 @@ export default function SyncPanels({ host, startup, drift, startEmptyGraph, revi
             {startup.state === 'empty' && <button onClick={startEmptyGraph}>Start an empty graph</button>}
             {startup.state === 'needs-decision' && <button onClick={reviewSaved}>Review differences</button>}
             {startup.state === 'no-comp' && <button onClick={createNewComp}>Create New Comp…</button>}
-            {startup.state === 'comp-changed' && <button onClick={inspectActiveComp}>Inspect Active Comp</button>}
           </div>
         )}
         {host.connected && startup.state === 'ready' && drift && (

@@ -89,6 +89,7 @@ function ntlrReadEffects(layer) {
         }
         var params = {};
         var exprs = {};
+        var expressionParams = [];
         for (var j = 1; j <= fx.numProperties; j++) {
             var sub;
             try {
@@ -108,8 +109,15 @@ function ntlrReadEffects(layer) {
                 ntlrNote('effect#' + i + '.' + sub.matchName, e4);
             }
             try {
-                if (sub.canSetExpression && sub.expressionEnabled && sub.expression) {
-                    exprs[sub.matchName] = sub.expression;
+                if (sub.canSetExpression) {
+                    // The diff must distinguish an unlinked parameter from one
+                    // AE simply does not allow expressions on. Without this
+                    // list a linked Fill is judged incomplete forever because
+                    // its topic/menu parameters correctly have no expression.
+                    expressionParams.push(sub.matchName);
+                    if (sub.expressionEnabled && sub.expression) {
+                        exprs[sub.matchName] = sub.expression;
+                    }
                 }
             } catch (e5) {
                 ntlrNote('effect#' + i + '.' + sub.matchName + '.expression', e5);
@@ -120,7 +128,8 @@ function ntlrReadEffects(layer) {
             matchName: fx.matchName,
             index: i,
             params: params,
-            expressions: exprs
+            expressions: exprs,
+            expressionParams: expressionParams
         });
     }
     return out;
@@ -142,6 +151,11 @@ function ntlrBlendReadable(layer) {
 function ntlrKindOf(layer) {
     if (layer instanceof CameraLayer) return 'camera';
     if (layer instanceof LightLayer) return 'light';
+    // Source Text is the capability that matters, and is more reliable than
+    // `instanceof TextLayer` across ExtendScript engine versions.
+    try {
+        if (ntlrTextProp(layer) !== null) return 'text';
+    } catch (eText) { /* fall through to the nominal kind checks */ }
     if (layer instanceof TextLayer) return 'text';
     if (layer instanceof ShapeLayer) return 'shape';
     if (layer.nullLayer) return 'null';

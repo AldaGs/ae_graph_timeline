@@ -15,6 +15,11 @@ export default defineConfig({
     sourcemap: process.env.NTL_SOURCEMAPS === '1',
   },
   server: { port: 5273 },
+  test: {
+    environment: 'jsdom',
+    restoreMocks: true,
+    clearMocks: true,
+  },
   resolve: {
     alias: {
       // The reconciler lives outside the panel, and is shared with the offline

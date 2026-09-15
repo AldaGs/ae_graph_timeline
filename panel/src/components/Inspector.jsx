@@ -76,7 +76,6 @@ function PropertyRows({ node, prop, value, driven = false, label, onWrite, onGes
         label={`${node.name} ${prop}${field.axis ? ` ${field.axis}` : ''}`}
         disabled={driven}
         onScrubStart={() => onGesture.begin(`Set ${node.name} ${prop}`)}
-        onScrub={(next) => write(withComponent(value, field.index, next))}
         onScrubEnd={() => void onGesture.end()}
         onCommit={(next) => write(withComponent(value, field.index, next))}
       />

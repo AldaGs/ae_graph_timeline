@@ -3,6 +3,7 @@ import { useHostMonitoring } from './useHostMonitoring.js';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { createGraphCommands } from '../graphCommands.js';
+import { createAeHistory } from '../aeHistory.js';
 import { createHost } from '../bridge/cep.js';
 import {
   createGraph, addNode, defaultLayerProps, hydrateFromComp, nodeIdFromTag, replaceGraph,
@@ -61,9 +62,8 @@ export function usePanelLifecycle() {
   const inspectRef = useRef(null);
   const activeCompRef = useRef(null);
   const lastSyncedGraphRef = useRef(null);
-  const pendingHistoryRef = useRef(null);
-  const undoHistoryRef = useRef([]);
-  const redoHistoryRef = useRef([]);
+  const aeHistoryRef = useRef(null);
+  if (!aeHistoryRef.current) aeHistoryRef.current = createAeHistory();
   const reconcileHistoryRef = useRef(null);
   const adoptDriftRef = useRef(null);
   const compFrameRef = useRef({ width: 1920, height: 1080 });
@@ -166,8 +166,7 @@ export function usePanelLifecycle() {
         baselineRef.current = saved?.document.baseline || compState;
         redraw();
         lastSyncedGraphRef.current = cloneGraph();
-        undoHistoryRef.current = [];
-        redoHistoryRef.current = [];
+        aeHistoryRef.current.reset();
 
         const inspected = inspectSavedGraph(graph, saved?.document.baseline, compState);
         const { diagnostic, baselineChanged } = inspected;
@@ -179,27 +178,25 @@ export function usePanelLifecycle() {
           loopEventsRef.current = loopRef.current.on((event) => {
             if (event.type === 'reading') setLink({ state: 'reading', detail: 'Reading composition…' });
             else if (event.type === 'patching') {
-              pendingHistoryRef.current = {
-                before: lastSyncedGraphRef.current || cloneGraph(),
-                after: cloneGraph(),
-              };
+              aeHistoryRef.current.begin({
+                beforeGraph: lastSyncedGraphRef.current || cloneGraph(),
+                afterGraph: cloneGraph(),
+                beforeComp: baselineRef.current,
+              });
               setLink({ state: 'writing', detail: `Writing ${event.ops.length} change${event.ops.length === 1 ? '' : 's'}…` });
             } else if (event.type === 'patched') {
-              if (pendingHistoryRef.current) {
-                undoHistoryRef.current.push(pendingHistoryRef.current);
-                if (undoHistoryRef.current.length > 50) undoHistoryRef.current.shift();
-                redoHistoryRef.current = [];
-                lastSyncedGraphRef.current = pendingHistoryRef.current.after;
-                pendingHistoryRef.current = null;
-              }
               setLink({ state: 'live', detail: `Synced — ${event.ops.length} change${event.ops.length === 1 ? '' : 's'}` });
             } else if (event.type === 'clean') {
               lastSyncedGraphRef.current = cloneGraph();
-              pendingHistoryRef.current = null;
+              aeHistoryRef.current.cancel();
               setLink({ state: 'live', detail: 'Synced' });
             } else if (event.type === 'checkpoint') {
               baselineRef.current = event.compState;
               lastSyncedGraphRef.current = cloneGraph();
+              aeHistoryRef.current.checkpoint({
+                afterGraph: lastSyncedGraphRef.current,
+                afterComp: event.compState,
+              });
               redraw();
               saveGraph();
             } else if (event.type === 'observed') {
@@ -220,7 +217,7 @@ export function usePanelLifecycle() {
               setDrift({ report: event.report, compState: event.compState });
               setLink({ state: event.report.blocking.length ? 'blocked' : 'changed', detail: 'After Effects changed outside Node Timeline' });
             } else if (event.type === 'failed' || event.type === 'readFailed' || event.type === 'error') {
-              pendingHistoryRef.current = null;
+              aeHistoryRef.current.cancel();
               setLink({ state: 'error', detail: event.message || 'Synchronization failed' });
             }
           });
@@ -379,8 +376,7 @@ export function usePanelLifecycle() {
       }
       restoreGraph(captured.graph);
       lastSyncedGraphRef.current = captured.graph;
-      undoHistoryRef.current = [];
-      redoHistoryRef.current = [];
+      aeHistoryRef.current.reset();
       loop.adoptCompState(compState);
       baselineRef.current = compState;
       saveGraph();
@@ -394,33 +390,16 @@ export function usePanelLifecycle() {
   // AE undo/redo is adopted only when the comp exactly matches a graph state
   // previously written by this panel. Arbitrary AE edits still enter drift UX.
   useEffect(() => {
-    const matches = (saved, compState) => saved && diff(saved, compState).ops.length === 0;
     reconcileHistoryRef.current = (compState) => {
-      if (!compState) return false;
-      const undo = undoHistoryRef.current;
-      for (let i = undo.length - 1; i >= 0; i--) {
-        if (!matches(undo[i].before, compState)) continue;
-        const moved = undo.splice(i);
-        redoHistoryRef.current.push(...moved.reverse());
-        const restored = moved[moved.length - 1].before;
-        restoreGraph(restored);
-        lastSyncedGraphRef.current = restored;
-        loopRef.current?.adoptCompState(compState);
-        setLink({ state: 'live', detail: 'AE undo reflected in graph' });
-        return true;
-      }
-      const redo = redoHistoryRef.current;
-      for (let i = redo.length - 1; i >= 0; i--) {
-        if (!matches(redo[i].after, compState)) continue;
-        const entry = redo.splice(i, 1)[0];
-        undoHistoryRef.current.push(entry);
-        restoreGraph(entry.after);
-        lastSyncedGraphRef.current = entry.after;
-        loopRef.current?.adoptCompState(compState);
-        setLink({ state: 'live', detail: 'AE redo reflected in graph' });
-        return true;
-      }
-      return false;
+      const transition = aeHistoryRef.current.reconcile(compState);
+      if (!transition) return false;
+      restoreGraph(transition.graph);
+      lastSyncedGraphRef.current = transition.graph;
+      loopRef.current?.adoptCompState(compState);
+      baselineRef.current = compState;
+      saveGraph();
+      setLink({ state: 'live', detail: `AE ${transition.direction} reflected in graph` });
+      return true;
     };
     return () => { reconcileHistoryRef.current = null; };
   }, [restoreGraph]);
@@ -495,12 +474,6 @@ export function usePanelLifecycle() {
     }
   }, [host, startup.state]);
 
-  const inspectActiveComp = useCallback(async () => {
-    if (startup.state !== 'comp-changed') return;
-    setStartup({ state: 'loading', detail: 'Inspecting the selected composition…' });
-    await inspectRef.current?.();
-  }, [startup.state]);
-
   const reviewSaved = useCallback(async () => {
     try {
       const current = parseCompState(await host.evalScript(readCompCall({ compId: activeCompRef.current?.compId, includeEffects: true })));
@@ -535,8 +508,7 @@ export function usePanelLifecycle() {
       const captured = captureCompState(graph, drift.compState);
       restoreGraph(captured.graph);
       lastSyncedGraphRef.current = captured.graph;
-      undoHistoryRef.current = [];
-      redoHistoryRef.current = [];
+      aeHistoryRef.current.reset();
       loopRef.current.adoptCompState(drift.compState);
       baselineRef.current = drift.compState;
       saveGraph();
@@ -564,5 +536,5 @@ export function usePanelLifecycle() {
     return locked;
   }, [version, baselineRef]);
 
-  return { textLocked, showEffectControls, graph, version, selected, setSelected, message, setMessage, contextMenu, host, link, startup, drift, storageRef, saveStatus, saveGraph, canEdit, commands, handlePaneContextMenu, closeContextMenu, addEffectNode, addExpressionNode, ping, onGestureStart, onGestureEnd, addLayer, rename, remove, addFx, setBlend, counts, startEmptyGraph, createNewComp, inspectActiveComp, reviewSaved, keepGraph, useAeChanges };
+  return { textLocked, showEffectControls, graph, version, selected, setSelected, message, setMessage, contextMenu, host, link, startup, drift, storageRef, saveStatus, saveGraph, canEdit, commands, handlePaneContextMenu, closeContextMenu, addEffectNode, addExpressionNode, ping, onGestureStart, onGestureEnd, addLayer, rename, remove, addFx, setBlend, counts, startEmptyGraph, createNewComp, reviewSaved, keepGraph, useAeChanges };
 }

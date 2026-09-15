@@ -14,7 +14,7 @@ const LINK_LABEL = {
 };
 
 export default function App() {
-  const { textLocked, showEffectControls, graph, version, selected, setSelected, message, setMessage, contextMenu, host, link, startup, drift, storageRef, saveStatus, saveGraph, canEdit, commands, handlePaneContextMenu, closeContextMenu, addEffectNode, addExpressionNode, ping, onGestureStart, onGestureEnd, addLayer, rename, remove, addFx, setBlend, counts, startEmptyGraph, createNewComp, inspectActiveComp, reviewSaved, keepGraph, useAeChanges } = usePanelLifecycle();
+  const { textLocked, showEffectControls, graph, version, selected, setSelected, message, setMessage, contextMenu, host, link, startup, drift, storageRef, saveStatus, saveGraph, canEdit, commands, handlePaneContextMenu, closeContextMenu, addEffectNode, addExpressionNode, ping, onGestureStart, onGestureEnd, addLayer, rename, remove, addFx, setBlend, counts, startEmptyGraph, createNewComp, reviewSaved, keepGraph, useAeChanges } = usePanelLifecycle();
 
   return (
     <div className="ntl-app">
@@ -78,7 +78,7 @@ export default function App() {
         <Outliner graph={graph} commands={commands} version={version} editable={canEdit} selected={selected} onSelect={setSelected} />
         <Inspector graph={graph} selected={selected} commands={commands} editable={canEdit}
           textLocked={textLocked} onError={setMessage} />
-        <SyncPanels {...{ host, startup, drift, startEmptyGraph, reviewSaved, createNewComp, inspectActiveComp, keepGraph, useAeChanges }} />
+        <SyncPanels {...{ host, startup, drift, startEmptyGraph, reviewSaved, createNewComp, keepGraph, useAeChanges }} />
       </div>
 
       <footer className="ntl-foot">

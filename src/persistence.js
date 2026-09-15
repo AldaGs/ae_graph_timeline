@@ -13,7 +13,21 @@ export function inspectSavedGraph(graph, baseline, current) {
   const candidate = JSON.parse(JSON.stringify(graph));
   for (const layer of current.layers) {
     const id = nodeIdFromTag(layer.comment);
-    if (counts.get(id) === 1 && candidate.nodes[id]) candidate.nodes[id].nativeId = layer.nativeId;
+    if (counts.get(id) === 1 && candidate.nodes[id]) {
+      const node = candidate.nodes[id];
+      node.nativeId = layer.nativeId;
+      // M4.8 briefly completed effect nodes from their host null's transform,
+      // polluting persisted parameter bags. Reopen has the authoritative effect
+      // record in hand, so retain only keys that are real parameters.
+      if (node.kind === 'effect') {
+        const effect = (layer.effects || []).find((item) => item.matchName === node.matchName);
+        if (effect) {
+          const observed = effect.params || {};
+          node.props = Object.fromEntries(Object.entries(node.props || {})
+            .filter(([key]) => observed[key] !== undefined));
+        }
+      }
+    }
   }
   const diagnostic = diff(candidate, current);
   const changes = baseline ? compareSnapshots(snapshot(baseline), snapshot(current)).changes : [];

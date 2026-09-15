@@ -18,8 +18,9 @@
 //   3. a click and a drag are the same gesture until the pointer moves, so the
 //      decision between "type" and "scrub" is made on distance, not on timing.
 //
-// Every scrub is wrapped in one gesture, which is what makes it one undo entry
-// in After Effects (S5: the stack holds 99) no matter how far it is dragged.
+// The pointer value is previewed locally while it moves, then committed once on
+// release. Besides making one scrub one AE undo entry, this keeps a 60 Hz input
+// from re-rendering the entire CEP panel and visibly flashing React Flow.
 
 import { useEffect, useRef, useState } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
@@ -39,12 +40,12 @@ export default function ScrubValue({
   label,
   disabled = false,
   onScrubStart,
-  onScrub,
   onScrubEnd,
   onCommit,
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState('');
+  const [preview, setPreview] = useState(null);
   // Everything a live drag needs, held where a pointer handler can reach it:
   // these change many times between renders and none of them belongs in state.
   const drag = useRef(null);
@@ -98,7 +99,7 @@ export default function ScrubValue({
     // Not preventDefault'd yet: until the pointer moves this may still be a
     // click, and a click has to be allowed to focus the field.
     event.currentTarget.setPointerCapture?.(event.pointerId);
-    drag.current = { x: event.clientX, start: value, moved: false };
+    drag.current = { x: event.clientX, start: value, last: value, moved: false };
   };
 
   const onPointerMove = (event) => {
@@ -113,7 +114,8 @@ export default function ScrubValue({
       onScrubStart?.();
     }
     event.preventDefault();
-    onScrub?.(applyScrub({ start: state.start, dx, spec, ...scrubModifiers(event) }));
+    state.last = applyScrub({ start: state.start, dx, spec, ...scrubModifiers(event) });
+    setPreview(state.last);
   };
 
   const endDrag = (event) => {
@@ -121,7 +123,12 @@ export default function ScrubValue({
     drag.current = null;
     if (!state) return;
     event.currentTarget.releasePointerCapture?.(event.pointerId);
-    if (state.moved) { onScrubEnd?.(); return; }
+    if (state.moved) {
+      setPreview(null);
+      if (state.last !== value) onCommit?.(state.last);
+      onScrubEnd?.();
+      return;
+    }
     // It never became a drag, so it was a click: type.
     if (!disabled) setEditing(true);
   };
@@ -173,7 +180,7 @@ export default function ScrubValue({
         ref={inputRef}
         className="ntl-scrub-input"
         aria-label={label}
-        value={editing ? draft : formatScrub(value, spec)}
+        value={editing ? draft : formatScrub(preview ?? value, spec)}
         readOnly={!editing}
         disabled={disabled}
         inputMode="decimal"
@@ -181,7 +188,11 @@ export default function ScrubValue({
         onPointerMove={onPointerMove}
         onPointerUp={endDrag}
         onPointerCancel={endDrag}
-        onLostPointerCapture={() => { drag.current = null; }}
+        onLostPointerCapture={() => {
+          if (drag.current?.moved) onScrubEnd?.();
+          drag.current = null;
+          setPreview(null);
+        }}
         onChange={(e) => setDraft(e.target.value)}
         onBlur={() => { if (editing) commitText(); }}
         onKeyDown={onKeyDown}

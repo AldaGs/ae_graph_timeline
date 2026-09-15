@@ -293,6 +293,29 @@ test('effects are added, removed, and params diffed', () => {
   assert.equal(r.warnings[0].kind, 'extraEffects');
 });
 
+test('a shared effect is clean when every expression-capable parameter is linked', () => {
+  const g = createGraph();
+  addNode(g, { id: 'layer', name: 'Layer', props: {} });
+  addNode(g, { id: 'fx', kind: 'effect', name: 'Fill fx', matchName: 'ADBE Fill',
+    props: { 'ADBE Fill-0002': [1, 0, 0, 1] } });
+  g.edges.flow = { id: 'flow', from: 'layer', to: 'fx', kind: 'flow' };
+
+  const result = diff(g, comp([
+    managed('layer', { name: 'Layer', effects: [{
+      matchName: 'ADBE Fill',
+      params: { 'ADBE Fill-0001': 0, 'ADBE Fill-0002': [1, 0, 0, 1] },
+      expressionParams: ['ADBE Fill-0002'],
+      expressions: { 'ADBE Fill-0002': 'thisComp.layer("Fill fx").effect(1)(3)' },
+    }] }),
+    managed('fx', { name: 'Fill fx', kind: 'null', effects: [{
+      matchName: 'ADBE Fill', params: { 'ADBE Fill-0002': [1, 0, 0, 1] },
+      expressionParams: ['ADBE Fill-0002'], expressions: {},
+    }] }),
+  ]));
+
+  assert.equal(result.ops.some((op) => op.op === 'linkEffectToHost'), false);
+});
+
 test('blend mode changes are diffed', () => {
   const g = createGraph();
   addNode(g, { id: 'n1', name: 'n1', props: {}, blendMode: 'multiply' });

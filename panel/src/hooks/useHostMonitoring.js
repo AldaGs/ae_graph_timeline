@@ -99,13 +99,19 @@ export function useHostMonitoring({ host, startup, loopRef, activeCompRef, loopE
           activeCompRef.current = null;
           setSelected(null);
           setContextMenu(null);
-          setStartup({
-            state: identity.status === 'changed' ? 'comp-changed' : 'no-comp',
-            detail: identity.status === 'changed'
-              ? `Active composition changed from “${expected.compName}” to “${active.compName}”. Writes are paused until you inspect the new comp.`
-              : `“${expected.compName}” was closed or deleted. The in-memory graph is retained read-only.`,
-          });
-          if (identity.status === 'missing') {
+          if (identity.status === 'changed') {
+            // The comp-id guard has already closed the old write lane, so
+            // reading the new comp is safe and needs no second user gesture.
+            // Requiring "Inspect Active Comp" made ordinary tabbing between
+            // comps feel like a fault and guaranteed a read-only stop every
+            // time even when both comps had clean sidecars.
+            setStartup({ state: 'loading',
+              detail: `Active composition changed from “${expected.compName}” to “${active.compName}”. Scanning the new comp…` });
+            setLink({ state: 'reading', detail: `Scanning “${active.compName}”…` });
+            await inspectRef.current?.();
+          } else {
+            setStartup({ state: 'no-comp',
+              detail: `“${expected.compName}” was closed or deleted. The in-memory graph is retained read-only.` });
             // Re-enter the existing no-comp retry path so a comp opened after a
             // deletion is detected without reopening the extension.
             window.setTimeout(() => void inspectRef.current?.(), 1000);

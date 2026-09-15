@@ -25,6 +25,24 @@ test('reopen tolerates observed AE precision rounding and rebinds a unique tag',
   assert.equal(inspectSavedGraph(graph, baseline, current).graph.nodes.n2.nativeId, 19);
 });
 
+test('reopen removes the M4.8 host-null transforms from an effect parameter bag', () => {
+  const graph = createGraph('Comp 1');
+  addNode(graph, { id: 'fx', kind: 'effect', name: 'Fill fx', nativeId: 19,
+    matchName: 'ADBE Fill', props: {
+      'ADBE Fill-0002': [1, 0, 0, 1], position: [960, 540], opacity: 0,
+    } });
+  const current = { compId: 1, revision: 2, layers: [{
+    nativeId: 19, name: 'Fill fx', comment: 'ntl:fx', kind: 'null',
+    props: { position: [960, 540], opacity: 0 }, expressions: {},
+    effects: [{ matchName: 'ADBE Fill', params: { 'ADBE Fill-0002': [1, 0, 0, 1] },
+      expressionParams: ['ADBE Fill-0002'], expressions: {} }],
+  }] };
+
+  const inspected = inspectSavedGraph(graph, current, current);
+  assert.deepEqual(inspected.graph.nodes.fx.props, { 'ADBE Fill-0002': [1, 0, 0, 1] });
+  assert.deepEqual(inspected.diagnostic.ops, []);
+});
+
 test('graph document preserves all graph-only data and refuses future versions', () => {
   const graph = createGraph('Shot');
   addNode(graph, { id: 'a', ui: { x: 33, y: 77 }, nativeId: 15 });

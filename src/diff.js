@@ -287,17 +287,23 @@ export function diff(graph, compState) {
         ops.push({ op: 'addEffect', node: node.id, index: i + 1, matchName: wantEffect.matchName, name: wantEffect.name, params: wantEffect.params || {} });
       } else if (wantEffect.hostId) {
         // Shared effect! It should get its values from expressions linked to the host.
-        // We only check if there are params that could be linked. If it's empty, we don't bother yet.
+        // The host reader identifies which parameters actually accept an
+        // expression. Checking every value made effects such as Fill look
+        // perpetually half-linked because AE exposes non-expression topic/menu
+        // properties alongside the writable values.
         const hostName = wantEffect.hostName;
-        let allLinked = true;
-        for (const param of Object.keys(haveEffect.params || {})) {
+        const expressionParams = Array.isArray(haveEffect.expressionParams)
+          ? haveEffect.expressionParams
+          : Object.keys(haveEffect.params || {});
+        let allLinked = expressionParams.length > 0;
+        for (const param of expressionParams) {
            const expr = haveEffect.expressions?.[param] || '';
            if (expr.indexOf(`thisComp.layer("${hostName}")`) === -1) {
               allLinked = false; break;
            }
         }
-        // If they aren't fully linked, and we know there are params, link them!
-        if (!allLinked && Object.keys(haveEffect.params || {}).length > 0) {
+        // If they aren't fully linked, and we know there are linkable params, link them.
+        if (!allLinked && expressionParams.length > 0) {
            ops.push({ op: 'linkEffectToHost', node: node.id, effectIndex: i + 1, hostName });
         }
       } else {

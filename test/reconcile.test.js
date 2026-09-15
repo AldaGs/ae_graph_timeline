@@ -43,6 +43,31 @@ test('comp-wins removes a graph expression edge instead of capturing its evaluat
   assert.equal(result.nodes.b.props.opacity, 17, 'after the edge is removed, the AE value becomes the constant');
 });
 
+test('comp-wins converges with a shared effect that has non-expression parameters', () => {
+  const graph = createGraph('Shot');
+  addNode(graph, { id: 'a', name: 'Layer', props: { opacity: 100 } });
+  addNode(graph, { id: 'fx', kind: 'effect', name: 'Fill fx', matchName: 'ADBE Fill',
+    props: { 'ADBE Fill-0002': [1, 0, 0, 1] } });
+  graph.edges.flow = { id: 'flow', from: 'a', to: 'fx', kind: 'flow' };
+  const state = comp([
+    layer('a', { name: 'Layer', effects: [{
+      matchName: 'ADBE Fill', name: 'Fill fx',
+      params: { 'ADBE Fill-0001': 0, 'ADBE Fill-0002': [0, 1, 0, 1] },
+      expressionParams: ['ADBE Fill-0002'],
+      expressions: { 'ADBE Fill-0002': 'thisComp.layer("Fill fx").effect(1)(3)' },
+    }] }),
+    layer('fx', { kind: 'null', name: 'Fill fx', effects: [{
+      matchName: 'ADBE Fill', name: 'Fill fx',
+      params: { 'ADBE Fill-0001': 0, 'ADBE Fill-0002': [0, 1, 0, 1] },
+      expressionParams: ['ADBE Fill-0002'], expressions: {},
+    }] }),
+  ]);
+
+  const captured = captureCompState(graph, state);
+  assert.deepEqual(captured.graph.nodes.fx.props, { 'ADBE Fill-0002': [0, 1, 0, 1] });
+  assert.deepEqual(diff(captured.graph, state).ops, []);
+});
+
 test('comp-wins refuses duplicate identities transactionally', () => {
   const graph = createGraph('Shot');
   addNode(graph, { id: 'a', name: 'A', props: { opacity: 100 } });

@@ -223,6 +223,19 @@ test('label and blend mode survive a real host read, and a change in AE is seen'
   assert.deepEqual(ops, ['setBlendMode', 'setLabel']);
 });
 
+test('the host names exactly which effect parameters can carry expressions', () => {
+  const ae = makeAE();
+  const layer = ae.comp.add('Tagged', { comment: tagFor('a') });
+  const effect = layer.effectParade.addProperty('ADBE Fill');
+  const color = effect.property('ADBE Fill-0002');
+  color._value = [1, 0, 0, 1];
+  const topic = effect.property('ADBE Fill-0001');
+  topic.canSetExpression = false;
+
+  const state = parseCompState(ae.eval(readCompCall({ includeEffects: true })));
+  assert.deepEqual(state.layers[0].effects[0].expressionParams, ['ADBE Fill-0002']);
+});
+
 test('an unmanaged layer contributes neither label nor blend mode', () => {
   // Same rule as the properties: a field on a layer that is not ours must not
   // reach the diff, because anything in compState looks writable to it.

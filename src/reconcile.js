@@ -86,7 +86,15 @@ export function captureCompState(graph, compState) {
     node.blendMode = layer.blendMode ?? node.blendMode;
     if (node.kind === 'effect') {
       const effect = layer.effects?.[0];
-      if (effect?.matchName === node.matchName) node.props = clone(effect.params || {});
+      if (effect?.matchName === node.matchName) {
+        // An effect node owns the parameter keys it was created with. AE also
+        // reports topics, menus, and other values that are not editable inputs;
+        // importing the whole bag made a later capture impossible to verify.
+        const observed = effect.params || {};
+        node.props = Object.fromEntries(Object.keys(node.props || {})
+          .filter((key) => observed[key] !== undefined)
+          .map((key) => [key, clone(observed[key])]));
+      }
     } else {
       for (const [prop, value] of Object.entries(layer.props || {})) {
         // A driven value belongs to its expression, not to a constant input.

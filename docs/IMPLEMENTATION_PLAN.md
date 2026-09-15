@@ -1,6 +1,10 @@
 # Node Timeline — Product Hardening Implementation Plan
 
-**Status: M4.7 CODE PASS IMPLEMENTED; HOST SCALE GATE AND REVIEW FIXES PENDING. M4.6 REMAINING UX IS STILL OPEN.**
+**Status: M4.13 LIVE FUNCTIONAL MATRIX PASSED; SCALE GATE OPEN. M4.6 REMAINING UX IS STILL OPEN.**
+
+The consolidated host matrix, fixtures, evidence format, and closeout rules now
+live in [`M4.13.md`](M4.13.md). Earlier phase checklists remain the source for
+the behavior they introduced; M4.13 is the single record of the live run.
 
 This plan turns the 2026-09-14 product review into a safe sequence of changes.
 Its first goal is preventing accidental After Effects mutations; its second is

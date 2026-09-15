@@ -115,18 +115,19 @@ flow/expression relationships and amber dashed wires carry parenting.
 simple shot. The model, diff, patch, and canvas now understand AE's effect stack,
 blend modes, and label colours. See [`docs/M2.md`](docs/M2.md) for the tracking document.
 
-**M4 code exists but is not yet safe to call complete.** Native
+**M4's functional live matrix now passes.** Native
 layer IDs are captured after creation, duplicate tags are disambiguated, unique
 precompose replacements can re-bind, and the panel hydrates tagged layers on
-startup. Hydration is lossy until M6 and the current initial flush can clear
-graph-owned expressions or parenting that hydration did not reconstruct. See
-[`docs/M4.md`](docs/M4.md) and use only disposable or version-controlled project
-files until reload is made non-destructive and manually verified.
+startup. Normal reopen uses the schema-versioned sidecar; comp-only hydration
+remains a lossy recovery/import path and startup stays read-only when the graph
+cannot be reconstructed safely. See [`docs/M4.md`](docs/M4.md). The consolidated
+live-host evidence is tracked in [`docs/M4.13.md`](docs/M4.13.md); its remaining
+open item is the 50/200/1,000-node scale measurement gate.
 
 The current UI also includes an outliner for visibility, label colour, and
-managed-layer order. The core reconciler is well covered, but the React/CEP
-integration is not yet covered by automated component tests; treat the panel as
-an in-development prototype rather than a production-safe editor.
+managed-layer order. Core reconciliation and the critical React/CEP host paths
+have automated coverage. Treat the panel as an in-development prototype until
+the remaining scale gate and later roadmap milestones pass.
 
 ```bash
 cd panel && npm install
