@@ -128,6 +128,17 @@ function ntlrReadEffects(layer) {
 
 // ---------------------------------------------------------------- the reader
 
+// Cameras and lights have no blending mode, and asking for one throws. Kept as
+// its own predicate so an unsupported layer kind reads as "not applicable"
+// rather than as an error counted against the read.
+function ntlrBlendReadable(layer) {
+    try {
+        return layer.blendingMode !== undefined && layer.blendingMode !== null;
+    } catch (e) {
+        return false;
+    }
+}
+
 function ntlrKindOf(layer) {
     if (layer instanceof CameraLayer) return 'camera';
     if (layer instanceof LightLayer) return 'light';
@@ -195,6 +206,22 @@ function ntlrReadComp(comp, includeEffects) {
         // anything in compState looks to the diff like something it may write.
         if (nodeId !== null) {
             managed++;
+            // R1: label and blend mode are READ, not assumed. The diff only
+            // emits a write for a field it observed, so a field the reader
+            // omitted was one the inspector could change forever while After
+            // Effects kept the old value and the diff reported clean. Read here,
+            // with the properties, because the same rule applies: a field on an
+            // unmanaged layer is not ours and must not reach the diff.
+            try {
+                rec.label = layer.label;
+            } catch (eLabel) {
+                ntlrNote('label', eLabel);
+            }
+            try {
+                if (ntlrBlendReadable(layer)) rec.blendMode = ntlrBlendName(layer.blendingMode);
+            } catch (eBlend) {
+                ntlrNote('blendMode', eBlend);
+            }
             var tg;
             try {
                 tg = layer.property('ADBE Transform Group');
@@ -223,6 +250,10 @@ function ntlrReadComp(comp, includeEffects) {
         revision: app.project.revision,
         duration: comp.duration,
         frameRate: comp.frameRate,
+        // The panel needs the frame to place a new layer's position and anchor
+        // point at the centre of THIS comp rather than at a hardcoded 1920x1080.
+        width: comp.width,
+        height: comp.height,
         layerCount: n,
         managedLayers: managed,
         untaggedLayers: n - managed,

@@ -13,6 +13,33 @@ export class ReconcileError extends Error {
 const clone = (value) => JSON.parse(JSON.stringify(value));
 
 /**
+ * What the panel should do about a drift report.
+ *
+ * The graph is the source of truth, but "the user nudged a value in the
+ * timeline" is not a crisis and must not be answered by freezing every control
+ * until they pick a winner - which is what happens when every drifted report
+ * becomes a decision. Two conditions decide it:
+ *
+ *   - BLOCKING drift means an identity the graph was holding is no longer the
+ *     thing it thought it was: a layer gone, a tag duplicated, an expression we
+ *     authored now hand-written. Nothing can be adopted through that.
+ *   - a DIRTY graph means the panel is holding changes of its own that have not
+ *     reached the comp. An AE edit on top of those is a real collision between
+ *     two intentions, and only the user can say which one wins.
+ *
+ * Everything else is adopted: the comp as the user left it becomes the graph.
+ *
+ * @returns 'adopt' | 'decide'
+ */
+export function classifyDrift({ report, dirty = false, compState = null } = {}) {
+  if (!report || !compState) return 'decide';
+  if (report.blocking?.length > 0) return 'decide';
+  if (dirty) return 'decide';
+  return 'adopt';
+}
+
+
+/**
  * Build a graph that adopts every safely representable fact in compState.
  * Nothing mutates the live graph until a final diff proves the candidate needs
  * zero writes back to AE.

@@ -1,4 +1,4 @@
-import { addNode, addEffect, moveNode, setNodeExpression, setNodeProperty, setNodeField, reorderNodes } from '../../src/graph.js';
+import { addNode, addEffect, defaultLayerProps, moveNode, setNodeExpression, setNodeProperty, setNodeField, reorderNodes } from '../../src/graph.js';
 import {
   connect, connectExpression, connectFlow, connectParent,
   disconnect, handleMeta, nextNodeId, removeNode, renameNode,
@@ -9,10 +9,6 @@ const LAYER_NAMES = {
   footage: 'Footage', precomp: 'Precomp', camera: 'Camera', light: 'Light',
 };
 
-const layerProps = (kind) => (kind === 'null' || kind === 'camera' || kind === 'light'
-  ? { position: [960, 540], rotation: 0 }
-  : { position: [960, 540], scale: [100, 100], opacity: 100 });
-
 /**
  * The panel's single mutation boundary.
  *
@@ -20,7 +16,8 @@ const layerProps = (kind) => (kind === 'null' || kind === 'camera' || kind === '
  * the write loop dirty with a useful undo label. Canvas-only movement redraws
  * without touching AE.
  */
-export function createGraphCommands({ graph, getLoop, redraw, setSelected = () => {}, onChange = () => {} }) {
+export function createGraphCommands({ graph, getLoop, redraw, setSelected = () => {},
+                                     onChange = () => {}, getCompSize = () => ({}) }) {
   if (!graph) throw new Error('graph commands need a graph');
   const repaint = typeof redraw === 'function' ? redraw : () => {};
   const loop = () => getLoop?.() ?? null;
@@ -44,7 +41,9 @@ export function createGraphCommands({ graph, getLoop, redraw, setSelected = () =
       const y = position?.y ?? (40 + Math.floor(count / 4) * 260);
       const node = addNode(graph, {
         id, kind, name: `${LAYER_NAMES[kind] || 'Layer'} ${id}`,
-        props: layerProps(kind), ui: { x, y },
+        // The comp's own frame, so a new layer lands in the middle of THIS comp
+        // rather than in the middle of a 1920x1080 one.
+        props: defaultLayerProps(kind, getCompSize() || {}), ui: { x, y },
       });
       return commit(`Add ${node.name}`, node);
     },

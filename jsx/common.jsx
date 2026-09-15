@@ -86,6 +86,57 @@ var NTLR_TRANSFORM = [
     ['opacity',     'ADBE Opacity']
 ];
 
+// ---------------------------------------------------------------- blend modes
+//
+// The graph speaks names ("multiply"); After Effects speaks BlendingMode
+// constants, which are opaque integers. The table lives HERE, next to the
+// property table, for the same reason: the reader turns an integer back into a
+// name and the writer turns a name into an integer, and a second copy of the
+// mapping would let those two disagree - which would look like drift, not a bug.
+
+var NTLR_BLEND = {
+    'normal': 'NORMAL',
+    'dissolve': 'DISSOLVE',
+    'darken': 'DARKEN',
+    'multiply': 'MULTIPLY',
+    'colorBurn': 'COLOR_BURN',
+    'linearBurn': 'LINEAR_BURN',
+    'darkerColor': 'DARKER_COLOR',
+    'lighten': 'LIGHTEN',
+    'screen': 'SCREEN',
+    'colorDodge': 'COLOR_DODGE',
+    'linearDodge': 'LINEAR_DODGE',
+    'lighterColor': 'LIGHTER_COLOR',
+    'overlay': 'OVERLAY',
+    'softLight': 'SOFT_LIGHT',
+    'hardLight': 'HARD_LIGHT',
+    'vividLight': 'VIVID_LIGHT',
+    'linearLight': 'LINEAR_LIGHT',
+    'pinLight': 'PIN_LIGHT',
+    'hardMix': 'HARD_MIX',
+    'difference': 'DIFFERENCE',
+    'exclusion': 'EXCLUSION',
+    'subtract': 'SUBTRACT',
+    'divide': 'DIVIDE',
+    'hue': 'HUE',
+    'saturation': 'SATURATION',
+    'color': 'COLOR',
+    'luminosity': 'LUMINOSITY'
+};
+
+// enum -> graph name. Returns null for a mode this build does not know, which
+// the reader carries through as null rather than guessing "normal": a layer set
+// to a mode we cannot name must not read back as one we can, or the diff would
+// keep trying to "correct" it.
+function ntlrBlendName(value) {
+    if (typeof BlendingMode === 'undefined') return null;
+    for (var k in NTLR_BLEND) {
+        if (!NTLR_BLEND.hasOwnProperty(k)) continue;
+        if (BlendingMode[NTLR_BLEND[k]] === value) return k;
+    }
+    return null;
+}
+
 function ntlrMatchName(propName) {
     for (var i = 0; i < NTLR_TRANSFORM.length; i++) {
         if (NTLR_TRANSFORM[i][0] === propName) return NTLR_TRANSFORM[i][1];

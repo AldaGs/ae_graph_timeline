@@ -26,7 +26,7 @@ import { readCompCall, parseCompState, ReadError } from './reader.js';
 import { diff } from './diff.js';
 import { applyPatchCall, parseReceipt, rollbackCall, PatchError } from './patch.js';
 import { createDriftGuard, revisionCall, parseRevision, DriftError } from './drift.js';
-import { bindNativeId, nodeIdFromTag, desiredExpressions } from './graph.js';
+import { bindNativeId, nodeIdFromTag, desiredExpressions, TRANSFORM_PROPS } from './graph.js';
 
 export class LoopError extends Error {
   constructor(message, detail) {
@@ -155,6 +155,7 @@ export function createWriteLoop({
 
     const parentProps = new Map(ops.filter((op) => op.op === 'setParent')
       .map((op) => [op.node, JSON.stringify(graph.nodes[op.node]?.props)]));
+    const created = new Set(ops.filter((op) => op.op === 'createLayer').map((op) => op.node));
     const source = applyPatchCall(ops, {
       compName,
       compId,
@@ -223,8 +224,26 @@ export function createWriteLoop({
       for (const layer of observed.layers) {
         const id = nodeIdFromTag(layer.comment);
         const node = graph.nodes[id];
+        if (!node) continue;
+
+        // A node the graph has just authored is INCOMPLETE: the panel can only
+        // assert the transform values a user chose, and the rest - anchorPoint
+        // above all - defaults from the layer's source, not from the comp. So
+        // the layer After Effects actually made is what fills those in. Without
+        // this, a created node carries fewer properties than the same node
+        // rebuilt by hydrateFromComp, the inspector renders fewer editors for
+        // it, and setNodeProperty refuses the ones it did not render.
+        if (created.has(id)) {
+          for (const prop of TRANSFORM_PROPS) {
+            if (node.props[prop] !== undefined) continue;
+            if (layer.props[prop] === undefined || driven[`${id}|${prop}`]) continue;
+            node.props[prop] = layer.props[prop];
+          }
+          continue;
+        }
+
         // Do not overwrite an edit made while the host was working.
-        if (!node || !parentProps.has(id) || JSON.stringify(node.props) !== parentProps.get(id)
+        if (!parentProps.has(id) || JSON.stringify(node.props) !== parentProps.get(id)
             || node.parent !== layer.parentTag) continue;
         for (const prop of ['position', 'anchorPoint', 'scale', 'rotation']) {
           if (layer.props[prop] !== undefined && !driven[`${id}|${prop}`]) {

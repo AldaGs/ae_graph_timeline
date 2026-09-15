@@ -223,8 +223,10 @@ test('a patch that deletes a layer reports itself as NOT fully reversible', () =
   // effects and keyframes are gone. Saying otherwise would be a lie the panel
   // would act on.
   const ae = makeAE();
-  ae.comp.add('Doomed', { comment: tagFor('d') });
-  const r = run(ae, [{ op: 'deleteLayer', node: 'd', nativeId: 1, name: 'Doomed' }]);
+  const doomed = ae.comp.add('Doomed', { comment: tagFor('d') });
+  // The layer's REAL native id. A made-up one is now refused rather than
+  // quietly resolved by tag, which is the point of carrying an id at all.
+  const r = run(ae, [{ op: 'deleteLayer', node: 'd', nativeId: doomed.id, name: 'Doomed' }]);
   assert.equal(r.invertible, false);
   assert.equal(ae.comp.byTag('d'), undefined);
 });
@@ -341,4 +343,67 @@ test('M2 patch ops apply effects and blend mode', () => {
   r = run(ae, [ops[3]]);
   assert.equal(r.ok, true);
   assert.equal(ae.comp.byTag('a').property('ADBE Effect Parade').numProperties, 0);
+});
+
+// ---- M4.8: R2, duplicate cleanup inside one patch -------------------------
+
+test('stripping a copied tag frees the original for later ops in the same patch', () => {
+  // R2 in docs/M4.7_REVIEW.md: ntlpSetComment changed the host comment without
+  // updating the patch context, so the rename that followed still saw two
+  // claimants and failed AFTER the cleanup had already landed.
+  const ae = makeAE();
+  const original = ae.comp.add('A', { comment: tagFor('a') });
+  const copy = ae.comp.add('A copy', { comment: tagFor('a') });
+
+  const receipt = parseReceipt(ae.eval(applyPatchCall([
+    { op: 'setComment', node: 'a', nativeId: copy.id, comment: '' },
+    { op: 'setName', node: 'a', to: 'Renamed' },
+    { op: 'setProp', node: 'a', prop: 'opacity', to: 40 },
+  ], { label: 'cleanup' })));
+
+  assert.equal(receipt.applied, 3);
+  assert.equal(copy.comment, '', 'the copy is unmanaged');
+  assert.equal(original.name, 'Renamed', 'the surviving original took the rename');
+  assert.equal(original.prop('opacity').value, 40);
+  assert.equal(ae.undo.groups.length, 1, 'still one undo group');
+});
+
+test('re-tagging a layer makes the tag ambiguous again within the patch', () => {
+  // The inverse direction: a rollback re-tags, and the bookkeeping has to hold
+  // both ways or a rolled-back patch leaves the writer believing a lie.
+  const ae = makeAE();
+  ae.comp.add('A', { comment: tagFor('a') });
+  const other = ae.comp.add('B', { comment: '' });
+
+  assert.throws(() => parseReceipt(ae.eval(applyPatchCall([
+    { op: 'setComment', node: 'a', nativeId: other.id, comment: tagFor('a') },
+    { op: 'setName', node: 'a', to: 'Renamed' },
+  ], { label: 'retag' }))), /2 layers carry the tag/);
+});
+
+test('deleting one of a duplicated pair leaves the tag claimed, not unclaimed', () => {
+  const ae = makeAE();
+  const original = ae.comp.add('A', { comment: tagFor('a') });
+  const copy = ae.comp.add('A copy', { comment: tagFor('a') });
+
+  const receipt = parseReceipt(ae.eval(applyPatchCall([
+    { op: 'deleteLayer', node: 'a', nativeId: copy.id },
+    { op: 'setName', node: 'a', to: 'Survivor' },
+  ], { label: 'delete the copy' })));
+
+  assert.equal(receipt.applied, 2);
+  assert.equal(original.name, 'Survivor');
+  assert.equal(ae.comp.numLayers, 1);
+});
+
+test('a delete naming a native id that is not there is refused, not resolved by tag', () => {
+  // Only the ops that actually carry a native id - deleteLayer and setComment -
+  // can be aimed this way, and an id that is not in the comp must refuse rather
+  // than fall back to the tag: the fallback is how a delete aimed at a copy
+  // removes the original instead.
+  const ae = makeAE();
+  ae.comp.add('A', { comment: tagFor('a') });
+  assert.throws(() => run(ae, [{ op: 'deleteLayer', node: 'a', nativeId: 99999 }]),
+    /no layer found with id 99999/);
+  assert.equal(ae.comp.numLayers, 1, 'nothing was removed');
 });

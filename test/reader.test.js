@@ -16,6 +16,7 @@ import {
 } from '../src/reader.js';
 import { diff } from '../src/diff.js';
 import { createGraph, addNode, addEdge, tagFor, expressionFor, expressionBody } from '../src/graph.js';
+import { makeAE } from './fake-ae.js';
 
 // ---- helpers ---------------------------------------------------------------
 
@@ -197,4 +198,53 @@ test('an untagged layer survives the round trip untouched', () => {
   const r = diff(createGraph(), state);
   assert.equal(r.ops.length, 0);
   assert.equal(r.stats.untaggedLayers, 1);
+});
+
+// ---- M4.8: R1, label and blend mode at the reader boundary ----------------
+
+test('label and blend mode survive a real host read, and a change in AE is seen', () => {
+  // R1 in docs/M4.7_REVIEW.md: the host built layer records without these two
+  // fields, so the inspector could change them, the diff would report clean,
+  // and After Effects kept the old value forever.
+  const ae = makeAE();
+  const layer = ae.comp.add('Tagged', { comment: tagFor('a'), label: 4 });
+  layer.blendingMode = ae.ctx.BlendingMode?.MULTIPLY ?? 5222;
+
+  const state = parseCompState(ae.eval(readCompCall({ includeEffects: true })));
+  const read = state.layers.find((l) => l.comment === tagFor('a'));
+  assert.equal(read.label, 4, 'label reached the panel');
+  assert.equal(read.blendMode, 'multiply', 'the BlendingMode enum was named');
+
+  // And the diff now has something to compare against.
+  const graph = createGraph();
+  addNode(graph, { id: 'a', name: 'Tagged', label: 2, blendMode: 'screen',
+    props: { ...read.props } });
+  const ops = diff(graph, state).ops.map((op) => op.op).sort();
+  assert.deepEqual(ops, ['setBlendMode', 'setLabel']);
+});
+
+test('an unmanaged layer contributes neither label nor blend mode', () => {
+  // Same rule as the properties: a field on a layer that is not ours must not
+  // reach the diff, because anything in compState looks writable to it.
+  const ae = makeAE();
+  ae.comp.add("the user's own", { comment: 'notes', label: 7 });
+  const state = parseCompState(ae.eval(readCompCall()));
+  const theirs = state.layers[0];
+  assert.equal(theirs.label, undefined);
+  assert.equal(theirs.blendMode, undefined);
+});
+
+test('a blend mode this build cannot name is reported, never guessed as normal', () => {
+  const state = normalizeCompState(payload([
+    hostLayer({ comment: tagFor('a'), blendMode: null }),
+  ]));
+  assert.equal(state.layers[0].blendMode, undefined, 'not silently "normal"');
+  assert.deepEqual(state.warnings.map((w) => w.kind), ['unknownBlendMode']);
+});
+
+test('the comp frame is carried so a new layer can be centred in it', () => {
+  const ae = makeAE();
+  const state = parseCompState(ae.eval(readCompCall()));
+  assert.equal(state.width, 1920);
+  assert.equal(state.height, 1080);
 });

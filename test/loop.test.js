@@ -15,7 +15,8 @@ import assert from 'node:assert/strict';
 import { makeAE } from './fake-ae.js';
 import { createWriteLoop, LoopError } from '../src/loop.js';
 import { createDriftGuard } from '../src/drift.js';
-import { createGraph, addNode, addEdge, tagFor } from '../src/graph.js';
+import { createGraph, addNode, addEdge, tagFor, defaultLayerProps, hydrateFromComp, TRANSFORM_PROPS } from '../src/graph.js';
+import { parseCompState, readCompCall } from '../src/reader.js';
 import { diff } from '../src/diff.js';
 import { serializeGraph, parseGraph } from '../src/persistence.js';
 
@@ -540,4 +541,44 @@ test('CONTROL: a loop that patched per touch would fail the first test', async (
   assert.ok(ae.undo.groups.length > loop.stats.patches - 1);
   // 99 is the measured ceiling (S5). Two and a half seconds of dragging at 16 fps.
   assert.ok(ae.undo.groups.length < 99);
+});
+
+// ---- M4.8: a created node and a hydrated node are the same shape ----------
+
+test('a created layer node ends up with the same props a hydrated one has', async () => {
+  // The panel can only assert the transform values a user chose; anchorPoint
+  // defaults from the layer's SOURCE, so guessing it here would be written into
+  // AE and move the layer. It is adopted from what AE actually made instead -
+  // and without that, a created node carried three properties where the same
+  // node rebuilt by hydrateFromComp carried five, the inspector rendered three
+  // editors, and setNodeProperty refused the other two.
+  const ae = makeAE();
+  const graph = createGraph();
+  addNode(graph, { id: 'n1', kind: 'solid', name: 'Solid n1',
+    props: defaultLayerProps('solid', { width: ae.comp.width, height: ae.comp.height }) });
+
+  const loop = createWriteLoop({ host: ae.host, graph, observeAfterPatch: true, includeEffects: true });
+  loop.touch('Add Solid n1');
+  await loop.flush();
+
+  assert.deepEqual(Object.keys(graph.nodes.n1.props).sort(), [...TRANSFORM_PROPS].sort());
+
+  // And the shape matches what a panel reload would rebuild from the same comp.
+  const reloaded = createGraph();
+  hydrateFromComp(reloaded, parseCompState(
+    await ae.host.evalScript(readCompCall({ includeEffects: true }))));
+  assert.deepEqual(Object.keys(reloaded.nodes.n1.props).sort(),
+                   Object.keys(graph.nodes.n1.props).sort());
+
+  // The adopted value is AE's, not a guess, so nothing is left to write.
+  const after = parseCompState(await ae.host.evalScript(readCompCall({ includeEffects: true })));
+  assert.deepEqual(diff(graph, after).ops, []);
+  await loop.close();
+});
+
+test('the comp frame, not 1920x1080, decides where a new layer is centred', () => {
+  assert.deepEqual(defaultLayerProps('solid', { width: 1080, height: 1920 }).position, [540, 960]);
+  // A camera has no scale and no opacity; asking for one it does not have is
+  // how a node acquires a property the diff can never satisfy.
+  assert.deepEqual(Object.keys(defaultLayerProps('camera')).sort(), ['position', 'rotation']);
 });

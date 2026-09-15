@@ -31,6 +31,7 @@ export default function Inspector({ graph, selected, commands, editable, onError
   useEffect(() => { setName(node?.name || ''); setConfirmDelete(false); }, [selected, node?.name]);
   if (!node) return <aside className="ntl-inspector"><strong>Inspector</strong><p>Select a node on the canvas or in the outliner to edit it.</p></aside>;
   const layer = !['effect', 'expression'].includes(node.kind);
+  const hasParams = Object.keys(node.props).length > 0;
   const driven = desiredExpressions(graph);
   const add = (effect) => {
     if (!effect.matchName.trim()) { onError('Enter an effect match name'); return; }
@@ -47,7 +48,10 @@ export default function Inspector({ graph, selected, commands, editable, onError
         <optgroup label="Compositing">{BLEND_MODES.slice(0, 15).map((mode) => <option key={mode}>{mode}</option>)}</optgroup>
         <optgroup label="Contrast and colour">{BLEND_MODES.slice(15).map((mode) => <option key={mode}>{mode}</option>)}</optgroup>
       </select></label>}
-      {layer && Object.entries(node.props).map(([prop, value]) => <label key={prop}>{prop}{driven[`${node.id}|${prop}`] ? ' · linked' : ''}
+      {/* Not gated on `layer`: an effect node's parameters live in `props` too,
+          and while this was layer-only they were readable on the canvas and
+          editable nowhere. */}
+      {node.kind !== 'expression' && Object.entries(node.props).map(([prop, value]) => <label key={prop}>{prop}{driven[`${node.id}|${prop}`] ? ' · linked' : ''}
         <ValueEditor value={value} label={`${node.name} ${prop}`} disabled={!!driven[`${node.id}|${prop}`]}
           onCommit={(next) => { if (JSON.stringify(next) !== JSON.stringify(value)) commands.setProperty(node.id, prop, next); }} onError={onError} />
       </label>)}
@@ -56,6 +60,7 @@ export default function Inspector({ graph, selected, commands, editable, onError
         {EFFECTS.filter((fx) => fx.name.toLowerCase().includes(search.toLowerCase())).map((fx) => <button key={fx.matchName} onClick={() => add(fx)}>{fx.name}</button>)}
         <details><summary>Advanced match name</summary><input aria-label="Effect match name" value={raw} onChange={(e) => setRaw(e.target.value)} /><button onClick={() => add({ matchName: raw.trim(), name: raw.trim() })}>Add</button></details>
       </details>}
+      {node.kind === 'effect' && !hasParams && <p>This effect has no parameters in the graph yet. Add one by wiring a value into it.</p>}
       <button id="ntl-inspector-delete" onClick={() => setConfirmDelete(true)}>Delete node…</button>
       {confirmDelete && <div role="alert"><p>Delete {node.name} and its connections? AE layer deletion removes its animation too.</p><button onClick={() => { commands.remove(node.id); onError('Deleted node. Use AE Undo to restore a synchronized layer.'); }}>Delete</button><button onClick={() => setConfirmDelete(false)}>Cancel</button></div>}
     </fieldset>

@@ -7,7 +7,7 @@ import { createHost } from '../bridge/cep.js';
 import { createGraph, addNode, hydrateFromComp, replaceGraph } from '../../../src/graph.js';
 import { diff } from '../../../src/diff.js';
 import { revisionCall, parseRevision, compareSnapshots, snapshot } from '../../../src/drift.js';
-import { captureCompState } from '../../../src/reconcile.js';
+import { captureCompState, classifyDrift } from '../../../src/reconcile.js';
 import { createGraphStore, inspectSavedGraph } from '../../../src/persistence.js';
 import {
   readCompCall, parseCompState, newCompDialogCall, parseNewCompDialog,
@@ -49,6 +49,8 @@ export function usePanelLifecycle() {
   const undoHistoryRef = useRef([]);
   const redoHistoryRef = useRef([]);
   const reconcileHistoryRef = useRef(null);
+  const adoptDriftRef = useRef(null);
+  const compFrameRef = useRef({ width: 1920, height: 1080 });
   const { storageRef, baselineRef, saveStatus, setSaveStatus, saveGraph, scheduleSave, flushSave } = useGraphPersistence(graph);
   const canEdit = (!host.connected || startup.state === 'ready') && !drift;
 
@@ -66,6 +68,7 @@ export function usePanelLifecycle() {
     redraw,
     setSelected,
     onChange: scheduleSave,
+    getCompSize: () => compFrameRef.current,
   }), [graph, redraw, scheduleSave]);
 
   const handlePaneContextMenu = useCallback((event, position) => {
@@ -135,6 +138,10 @@ export function usePanelLifecycle() {
         if (cancelled) return;
         if (identity.compId !== compState.compId) throw new Error('Active composition changed during graph loading');
         activeCompRef.current = { compId: compState.compId, compName: compState.compName };
+        // A new layer is centred in THIS comp, not in a hardcoded 1920x1080 one.
+        if (compState.width && compState.height) {
+          compFrameRef.current = { width: compState.width, height: compState.height };
+        }
 
         replaceGraph(graph, createGraph());
         if (saved) {
@@ -186,10 +193,16 @@ export function usePanelLifecycle() {
                 saveGraph();
               }
             } else if (event.type === 'drift') {
-              if (!reconcileHistoryRef.current?.(event.compState)) {
-                setDrift({ report: event.report, compState: event.compState });
-                setLink({ state: event.report.blocking.length ? 'blocked' : 'changed', detail: 'After Effects changed outside Node Timeline' });
-              }
+              if (reconcileHistoryRef.current?.(event.compState)) return;
+              // Non-blocking drift is an ordinary edit in the timeline, and the
+              // panel used to answer it by demanding that the user choose a
+              // source of truth - which froze every control until they did, for
+              // nudging a value. It is adopted instead, and only drift that
+              // invalidates an identity, or that collides with unwritten graph
+              // changes, is still a decision.
+              if (adoptDriftRef.current?.(event)) return;
+              setDrift({ report: event.report, compState: event.compState });
+              setLink({ state: event.report.blocking.length ? 'blocked' : 'changed', detail: 'After Effects changed outside Node Timeline' });
             } else if (event.type === 'failed' || event.type === 'readFailed' || event.type === 'error') {
               pendingHistoryRef.current = null;
               setLink({ state: 'error', detail: event.message || 'Synchronization failed' });
@@ -243,6 +256,43 @@ export function usePanelLifecycle() {
       loopRef.current = null;
     };
   }, [host, graph, redraw, cloneGraph, saveGraph, flushSave]);
+
+  // Drift that does not invalidate an identity is the user editing their own
+  // comp, and the graph adopts it rather than asking who is in charge.
+  //
+  // Two conditions, both necessary. The report must carry no BLOCKING change -
+  // a vanished layer, a duplicated tag, an expression taken over by hand - and
+  // the graph must have nothing of its own waiting to be written. A dirty graph
+  // plus an AE edit is a genuine collision between two intentions, and that is
+  // the one case where only the user can say which wins.
+  useEffect(() => {
+    adoptDriftRef.current = (event) => {
+      const report = event?.report;
+      const compState = event?.compState;
+      const loop = loopRef.current;
+      if (!loop || loop.state.gestureDepth > 0) return false;
+      if (classifyDrift({ report, compState, dirty: loop.state.dirty }) !== 'adopt') return false;
+      let captured;
+      try {
+        // Refuses rather than half-adopts: anything the graph cannot represent
+        // leaves a pending write behind, and that has to become a decision.
+        captured = captureCompState(graph, compState);
+      } catch {
+        return false;
+      }
+      restoreGraph(captured.graph);
+      lastSyncedGraphRef.current = captured.graph;
+      undoHistoryRef.current = [];
+      redoHistoryRef.current = [];
+      loop.adoptCompState(compState);
+      baselineRef.current = compState;
+      saveGraph();
+      setLink({ state: 'live',
+        detail: `Adopted ${report.changes.length} change${report.changes.length === 1 ? '' : 's'} from After Effects` });
+      return true;
+    };
+    return () => { adoptDriftRef.current = null; };
+  }, [graph, restoreGraph, saveGraph, baselineRef]);
 
   // AE undo/redo is adopted only when the comp exactly matches a graph state
   // previously written by this panel. Arbitrary AE edits still enter drift UX.
@@ -327,6 +377,10 @@ export function usePanelLifecycle() {
   const createNewComp = useCallback(async () => {
     if (!host.connected || startup.state === 'loading') return;
     setStartup({ state: 'loading', detail: 'Waiting for After Effects composition settings…' });
+    // executeCommand blocks inside After Effects until the user answers, and
+    // every observation that arrives meanwhile is a script AE will refuse while
+    // its dialog is up. Nothing polls until the dialog is closed.
+    host.beginModal();
     try {
       const result = parseNewCompDialog(await host.evalScript(newCompDialogCall()));
       if (!result.created) {
@@ -338,6 +392,8 @@ export function usePanelLifecycle() {
     } catch (e) {
       setStartup({ state: 'error', detail: `Could not create composition: ${e.message}` });
       setLink({ state: 'error', detail: e.message });
+    } finally {
+      host.endModal();
     }
   }, [host, startup.state]);
 

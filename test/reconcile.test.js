@@ -2,7 +2,11 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { addEdge, addNode, createGraph, tagFor } from '../src/graph.js';
-import { captureCompState, ReconcileError } from '../src/reconcile.js';
+import { captureCompState, classifyDrift, ReconcileError } from '../src/reconcile.js';
+import { createDriftGuard } from '../src/drift.js';
+import { diff } from '../src/diff.js';
+import { parseCompState, readCompCall } from '../src/reader.js';
+import { makeAE } from './fake-ae.js';
 
 const layer = (id, over = {}) => ({
   nativeId: over.nativeId ?? id.charCodeAt(0), index: 1, name: id,
@@ -46,4 +50,46 @@ test('comp-wins refuses duplicate identities transactionally', () => {
     layer('a', { nativeId: 1 }), layer('a', { nativeId: 2 }),
   ])), (error) => error instanceof ReconcileError && /duplicated/.test(error.message));
   assert.equal(graph.nodes.a.name, 'A');
+});
+
+// ---- M4.8: a timeline edit is adopted, not escalated to a decision --------
+
+test('an ordinary AE property edit is adopted rather than made a decision', () => {
+  // The reported symptom: changing a layer property in the timeline popped up
+  // "choose which version is the source of truth" and disabled every control
+  // until the user answered.
+  const ae = makeAE();
+  ae.comp.add('Source', { comment: tagFor('a') });
+  const graph = createGraph();
+  addNode(graph, { id: 'a', name: 'Source',
+    props: { opacity: 100, position: [960, 540] } });
+
+  const before = parseCompState(ae.eval(readCompCall()));
+  const guard = createDriftGuard();
+  guard.mark(before);
+
+  ae.comp.byTag('a').prop('opacity').setValue(33);      // the user, in AE
+  const after = parseCompState(ae.eval(readCompCall()));
+  const report = guard.inspect(after);
+
+  assert.deepEqual(report.changes.map((c) => c.kind), ['propChanged']);
+  assert.equal(report.blocking.length, 0);
+  assert.equal(classifyDrift({ report, compState: after, dirty: false }), 'adopt');
+
+  // And the adoption is representable, so nothing is left pending.
+  const captured = captureCompState(graph, after);
+  assert.equal(captured.graph.nodes.a.props.opacity, 33);
+  assert.deepEqual(diff(captured.graph, after).ops, []);
+});
+
+test('drift is a decision when it blocks, or when the graph holds unwritten changes', () => {
+  const report = { blocking: [], changes: [{ kind: 'propChanged' }] };
+  const compState = { layers: [] };
+  assert.equal(classifyDrift({ report, compState, dirty: true }), 'decide',
+    'an AE edit on top of unwritten graph changes is a real collision');
+  assert.equal(classifyDrift({ report: { blocking: [{ kind: 'vanished' }], changes: [] }, compState }),
+    'decide', 'a lost identity can never be adopted through');
+  assert.equal(classifyDrift({ report, compState: null }), 'decide',
+    'a drift event without a comp state cannot be adopted');
+  assert.equal(classifyDrift({}), 'decide');
 });

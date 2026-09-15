@@ -46,6 +46,30 @@
     global.__adobe_cep__.evalScript(script, callback || function () {});
   };
 
+  // CEP dispatches host lifecycle events (notably
+  // com.adobe.csxs.events.ApplicationBeforeQuit) through these. Without them the
+  // panel cannot know the host is shutting down, and keeps calling evalScript
+  // while After Effects is holding its "Save changes?" modal - which After
+  // Effects answers with "Cannot run a script while a modal dialog is waiting
+  // for response".
+  CSInterface.prototype.addEventListener = function (type, listener, obj) {
+    if (typeof global.__adobe_cep__ === 'undefined') return;
+    global.__adobe_cep__.addEventListener(type, listener, obj);
+  };
+
+  CSInterface.prototype.removeEventListener = function (type, listener, obj) {
+    if (typeof global.__adobe_cep__ === 'undefined') return;
+    global.__adobe_cep__.removeEventListener(type, listener, obj);
+  };
+
+  CSInterface.prototype.dispatchEvent = function (event) {
+    if (typeof global.__adobe_cep__ === 'undefined') return;
+    if (event && event.data !== undefined && typeof event.data !== 'string') {
+      event.data = JSON.stringify(event.data);
+    }
+    global.__adobe_cep__.dispatchEvent(event);
+  };
+
   CSInterface.prototype.getApplicationID = function () {
     if (typeof global.__adobe_cep__ === 'undefined') return '';
     var env = safeJson(global.__adobe_cep__.getHostEnvironment());

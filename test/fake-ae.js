@@ -12,6 +12,7 @@
 
 import { readFileSync } from 'node:fs';
 import { createContext, runInContext } from 'node:vm';
+import { KIND_DEFAULT_LABEL } from '../src/graph.js';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
@@ -131,7 +132,12 @@ export class FakeLayer {
     this.outPoint = 5;
     this.removed = false;
     this._blendingMode = 5220;
-    this._label = 0;
+    // A new layer in After Effects carries a real label, and the graph's own
+    // default for the kind is the one a layer WE created would be given. A fake
+    // that defaulted every layer to 0 ("None") made a fixture comp disagree with
+    // an agreeing graph, so a first pass looked dirty for a reason no user could
+    // have caused.
+    this._label = KIND_DEFAULT_LABEL[kind] ?? 0;
     this.effectParade = new FakeEffectParade(this);
     this.transform = new FakeGroup({
       'ADBE Anchor Point': new FakeProperty('Anchor Point', [0, 0]),
@@ -212,9 +218,11 @@ export class FakeComp {
   _add(layer) { this._layers.push(layer); this.project.revision++; return layer; }
   get numLayers() { return this._layers.length; }
   layer(i) { return this._layers[i - 1]; }
-  add(name, { comment = '', props = {} } = {}) {
-    const l = this._add(new FakeLayer(this, name));
+  add(name, { comment = '', props = {}, label, blendMode, kind = 'solid' } = {}) {
+    const l = this._add(new FakeLayer(this, name, kind));
     l.comment = comment;
+    if (label !== undefined) l._label = label;
+    if (blendMode !== undefined) l._blendingMode = blendMode;
     for (const [k, v] of Object.entries(props)) l.prop(k)._value = inRealm(v);
     return l;
   }

@@ -96,7 +96,11 @@ function layerFacts(layer) {
     inPoint: layer.inPoint,
     outPoint: layer.outPoint,
     parentTag: layer.parentTag ?? null,
-    blendMode: layer.blendMode ?? 'normal', // M2
+    // R1: null means "the host did not report one", which is not the same as
+    // 'normal'. Defaulting it here made a layer kind without a blend mode
+    // indistinguishable from one the user had set back to normal.
+    blendMode: layer.blendMode ?? null, // M2
+    label: layer.label ?? null,
     props: { ...(layer.props || {}) },
     expressions: { ...(layer.expressions || {}) },
     // M2: effects array, keeping only what matters for structural identity
@@ -119,7 +123,8 @@ function layerDigest(f) {
     f.nativeId, f.name, f.kind, f.enabled ? '1' : '0',
     canonicalValue(f.inPoint), canonicalValue(f.outPoint),
     f.parentTag ?? '~',
-    f.blendMode,
+    f.blendMode ?? '~',
+    canonicalValue(f.label),
     canonicalMap(f.props),
     canonicalMap(f.expressions),
     canonicalEffects(f.effects),
@@ -187,6 +192,7 @@ const FACT_KINDS = [
   ['outPoint', 'retimed'],
   ['parentTag', 'reparented'],
   ['blendMode', 'blendModeChanged'],
+  ['label', 'labelChanged'],
 ];
 
 /**
@@ -380,6 +386,12 @@ export function projectSnapshot(snap, ops, revision) {
         break;
       case 'setBlendMode':
         if (entry) entry.facts.blendMode = op.to;
+        break;
+      case 'setLabel':
+        if (entry) entry.facts.label = op.to;
+        break;
+      case 'setEnabled':
+        if (entry) entry.facts.enabled = op.to;
         break;
       case 'setExpression':
         if (entry) entry.facts.expressions[op.prop] = op.text;

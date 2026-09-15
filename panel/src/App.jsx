@@ -9,6 +9,7 @@ import './App.css';
 const LINK_LABEL = {
   live: 'Synced', reading: 'Reading', writing: 'Writing',
   changed: 'AE changed', blocked: 'Blocked', browser: 'Offline',
+  paused: 'Paused',
   error: 'Error', checking: 'Checking',
 };
 

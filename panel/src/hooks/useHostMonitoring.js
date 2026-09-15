@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import { activeCompCall, parseActiveComp, classifyActiveComp } from '../../../src/reader.js';
+import { isHostUnavailableReply } from '../bridge/cep.js';
 
 // Observation never authorizes writes to a different active composition.
 export function useHostMonitoring({ host, startup, loopRef, activeCompRef, loopEventsRef, inspectRef, setLink, setSelected, setContextMenu, setStartup }) {
@@ -14,6 +15,7 @@ export function useHostMonitoring({ host, startup, loopRef, activeCompRef, loopE
     const poll = async () => {
       const state = loopRef.current?.state;
       if (cancelled || polling || document.hidden || Date.now() < retryAfter
+          || host.busy
           || !loopRef.current || state?.inFlight || state?.gestureDepth > 0) return;
       polling = true;
       try {
@@ -23,13 +25,34 @@ export function useHostMonitoring({ host, startup, loopRef, activeCompRef, loopE
       } catch (e) {
         failures++;
         retryAfter = Date.now() + Math.min(8000, 750 * (2 ** failures));
-        if (!cancelled) setLink({ state: 'error', detail: `Could not observe AE changes: ${e.message}` });
+        // A reply the host never ran has already closed the bridge's gate, and
+        // it is not a drift problem to report: it is After Effects saying "not
+        // now", most often because a modal dialog is up. Reporting it as an
+        // error would say nothing the user can act on.
+        if (!cancelled && !host.suspended) {
+          setLink({ state: 'error', detail: `Could not observe AE changes: ${e.message}` });
+        }
       }
       finally { polling = false; }
     };
     const handle = window.setInterval(() => void poll(), 750);
     return () => { cancelled = true; window.clearInterval(handle); };
-  }, [host, startup.state]);
+  }, [host, startup.state, loopRef, setLink]);
+
+  // The bridge suspends itself on the host's quit event and on a reply the host
+  // never ran. Say so, and stop the write loop: a patch held in the debounce
+  // when After Effects started closing has nowhere to land.
+  useEffect(() => {
+    if (!host.connected) return;
+    return host.onSuspendChange(({ suspended, reason }) => {
+      if (!suspended) {
+        setLink({ state: 'live', detail: 'Synchronization resumed' });
+        return;
+      }
+      loopRef.current?.discardPending();
+      setLink({ state: 'paused', detail: reason });
+    });
+  }, [host, loopRef, setLink]);
 
   // The active comp can change without app.project.revision moving. Keep this
   // identity watch separate from drift polling so a delete, close, switch, or
@@ -42,11 +65,16 @@ export function useHostMonitoring({ host, startup, loopRef, activeCompRef, loopE
 
     const checkActiveComp = async () => {
       const loopState = loopRef.current?.state;
-      if (cancelled || checking || !activeCompRef.current
+      if (cancelled || checking || !activeCompRef.current || host.busy
           || loopState?.inFlight || loopState?.gestureDepth > 0) return;
       checking = true;
       try {
-        const active = parseActiveComp(await host.evalScript(activeCompCall()));
+        const reply = await host.evalScript(activeCompCall());
+        // Same rule as the drift poll: a reply the host never ran means stop
+        // calling, not "the composition is gone". The bridge has already
+        // suspended itself; the only thing left is to not act on the reply.
+        if (isHostUnavailableReply(reply)) return;
+        const active = parseActiveComp(reply);
         if (cancelled) return;
         if (transientFailures > 0) {
           transientFailures = 0;
@@ -95,6 +123,6 @@ export function useHostMonitoring({ host, startup, loopRef, activeCompRef, loopE
       cancelled = true;
       window.clearInterval(handle);
     };
-  }, [host]);
+  }, [host, loopRef, activeCompRef, loopEventsRef, inspectRef, setLink, setSelected, setContextMenu, setStartup]);
 
 }

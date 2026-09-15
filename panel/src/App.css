@@ -101,6 +101,7 @@ button:disabled { opacity: 0.4; cursor: default; }
 .ntl-startup.is-error { border-color: var(--ntl-warn); }
 .ntl-startup button { align-self: flex-start; }
 .ntl-link.is-changed .ntl-dot,
+.ntl-link.is-paused .ntl-dot,
 .ntl-link.is-blocked .ntl-dot { background: var(--ntl-warn); }
 .ntl-drift {
   position: absolute;

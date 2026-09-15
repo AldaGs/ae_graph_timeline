@@ -120,6 +120,48 @@ export const BLEND_MODE_AE = {
   luminosity: 'LUMINOSITY',
 };
 
+// ------------------------------------------------------------ transform props
+//
+// The reader reads exactly these five, in this order (jsx/common.jsx's
+// NTLR_TRANSFORM), so these five are what a layer node holds. A node built by
+// `addLayer` and a node rebuilt by `hydrateFromComp` MUST end up with the same
+// set, or the same layer is a different node depending on how the panel came to
+// know about it: the inspector renders one editor per entry in `props`, and
+// setNodeProperty refuses a property the node does not already carry.
+export const TRANSFORM_PROPS = ['anchorPoint', 'position', 'scale', 'rotation', 'opacity'];
+
+// Which of them a layer kind actually has. A camera has no scale and no opacity;
+// a light has neither, and no Z rotation either. Asking for one that is not
+// there is how a node acquires a property the diff can then never satisfy.
+const KIND_TRANSFORM = {
+  camera: ['anchorPoint', 'position', 'rotation'],
+  light: ['anchorPoint', 'position'],
+};
+
+export const transformPropsFor = (kind) => KIND_TRANSFORM[kind] || TRANSFORM_PROPS;
+
+/**
+ * The props a newly authored layer node starts with.
+ *
+ * `anchorPoint` is deliberately ABSENT. Its default is a property of the layer's
+ * source, not of the comp - [50,50] for a null, [0,0] for text, the centre for a
+ * full-frame solid - so a value guessed here would be written into After Effects
+ * and visibly move the layer. It is adopted from the layer After Effects actually
+ * made, one round trip later (see observeAfterPatch in src/loop.js), which is
+ * what finally makes a created node and a hydrated node the same shape.
+ */
+export function defaultLayerProps(kind, { width = 1920, height = 1080 } = {}) {
+  const available = transformPropsFor(kind);
+  const centre = [Math.round(width / 2), Math.round(height / 2)];
+  const all = { position: centre, scale: [100, 100], rotation: 0, opacity: 100 };
+  const out = {};
+  for (const prop of available) {
+    if (prop === 'anchorPoint') continue;
+    if (all[prop] !== undefined) out[prop] = all[prop];
+  }
+  return out;
+}
+
 // ---------------------------------------------------------------- the graph
 
 export function createGraph(compName = null) {

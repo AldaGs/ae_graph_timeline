@@ -110,6 +110,17 @@ function cleanExpressions(raw, where, warnings) {
   return out;
 }
 
+// A blend mode the host could not name is reported and dropped, never guessed.
+// Defaulting it to 'normal' would make the diff try to "correct" a mode this
+// build does not know, on every pass, forever.
+function blendModeOf(layer, where, warnings) {
+  if (layer.blendMode === undefined) return undefined;
+  if (typeof layer.blendMode === 'string' && layer.blendMode.length > 0) return layer.blendMode;
+  warnings.push({ kind: 'unknownBlendMode', where,
+    message: `${where} carries a blend mode this build cannot name; it is left alone` });
+  return undefined;
+}
+
 /**
  * Validate and normalize the host's payload.
  *
@@ -165,6 +176,12 @@ export function normalizeCompState(payload, { tolerateReadErrors = false } = {})
       enabled: l.enabled !== false,
       inPoint: l.inPoint,
       outPoint: l.outPoint,
+      // R1: carried only when the host actually observed them. `undefined`
+      // means "not read", and the diff refuses to write a field it never saw -
+      // which is what keeps an unsupported layer kind from being "corrected"
+      // to a value nobody chose.
+      label: Number.isInteger(l.label) ? l.label : undefined,
+      blendMode: blendModeOf(l, where, warnings),
       // Parents travel as TAGS, not indices. An index is a position, not an
       // identity, and it changes the moment anything is reordered.
       parentTag: l.parentTag ?? null,
@@ -186,6 +203,9 @@ export function normalizeCompState(payload, { tolerateReadErrors = false } = {})
   return {
     compName: payload.compName,
     compId: payload.compId,
+    // The frame of the comp, so the panel can centre a new layer in THIS comp.
+    width: isFiniteNumber(payload.width) ? payload.width : null,
+    height: isFiniteNumber(payload.height) ? payload.height : null,
     // S4: the revision this state was read at. P1.4 compares it before trusting
     // the state, and before writing a patch computed from it.
     revision: payload.revision,

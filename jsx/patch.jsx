@@ -38,14 +38,19 @@ function ntlpFail(reason) {
 // ------------------------------------------------------------------ resolving
 
 function ntlpLayer(ctx, nodeId, nativeId) {
+    // An op that named a native id named it for a reason, so it is honoured
+    // whether or not the tag is currently ambiguous. Resolving by tag anyway
+    // when the count happened to be 1 meant an op aimed at one specific layer
+    // could land on a different one - which is the corruption the id is there
+    // to prevent, not merely a missed optimisation.
+    if (nativeId !== undefined && nativeId !== null) {
+        var candidate = ctx.byNativeId[nativeId];
+        if (candidate && ntlrNodeIdFromTag(candidate.comment) === nodeId) return candidate;
+        throw ntlpFail('no layer found with id ' + nativeId + ' for tag "' + nodeId + '"');
+    }
     var l = ctx.byTag[nodeId];
     if (l === undefined) throw ntlpFail('no layer carries the tag "' + nodeId + '"');
     if (ctx.counts[nodeId] > 1) {
-        if (nativeId !== undefined && nativeId !== null) {
-            var candidate = ctx.byNativeId[nativeId];
-            if (candidate && ntlrNodeIdFromTag(candidate.comment) === nodeId) return candidate;
-            throw ntlpFail('no layer found with id ' + nativeId + ' for tag "' + nodeId + '"');
-        }
         // S3: a duplicated layer carries the same comment. The diff already
         // warns; the writer refuses outright, because writing to the wrong one
         // of an ambiguous pair is exactly the silent corruption we are here to
@@ -53,6 +58,16 @@ function ntlpLayer(ctx, nodeId, nativeId) {
         throw ntlpFail(ctx.counts[nodeId] + ' layers carry the tag "' + nodeId + '"; refusing to guess');
     }
     return l;
+}
+
+// setComment is the one op whose target need NOT already carry the tag: it is
+// the op that assigns and releases tags. Resolved by native id on its own terms,
+// so a rollback can re-tag a layer that is currently untagged.
+function ntlpCommentTarget(ctx, op) {
+    if (op.nativeId === undefined || op.nativeId === null) return ntlpLayer(ctx, op.node);
+    var layer = ctx.byNativeId[op.nativeId];
+    if (!layer) throw ntlpFail('no layer found with id ' + op.nativeId);
+    return layer;
 }
 
 // Resolve once, cache, write through the handle.
@@ -148,8 +163,9 @@ function ntlpDeleteLayer(ctx, op) {
     var layer = ntlpLayer(ctx, op.node, op.nativeId);
     delete ctx.byNativeId[layer.id];
     layer.remove();
-    delete ctx.byTag[op.node];
-    delete ctx.counts[op.node];
+    // Reindexed rather than wiped: deleting ONE of a duplicated pair leaves the
+    // tag still claimed, and a later op in this patch has to see that.
+    ntlpReindexTag(ctx, op.node);
     // NOT invertible. Re-creating a solid is not restoring the layer that was
     // there - its masks, effects and keyframes are gone. A patch containing a
     // delete is reported as only partly reversible, rather than pretending.
@@ -213,10 +229,39 @@ function ntlpReorder(ctx, op) {
 }
 
 
+// R2: the patch context's tag index has to move with the comment, or a later op
+// in the SAME patch still sees two claimants for a tag whose copy this op just
+// released - and the patch fails after the cleanup has already landed.
+function ntlpReindexTag(ctx, tag) {
+    if (tag === null) return;
+    var comp = ctx.comp;
+    var count = 0;
+    var first = null;
+    for (var i = 1; i <= comp.numLayers; i++) {
+        var l = comp.layer(i);
+        if (ntlrNodeIdFromTag(l.comment) !== tag) continue;
+        count++;
+        if (first === null) first = l;
+    }
+    if (count === 0) {
+        delete ctx.byTag[tag];
+        delete ctx.counts[tag];
+        return;
+    }
+    ctx.byTag[tag] = first;
+    ctx.counts[tag] = count;
+}
+
 function ntlpSetComment(ctx, op) {
-    var layer = ntlpLayer(ctx, op.node, op.nativeId);
+    var layer = ntlpCommentTarget(ctx, op);
     var before = layer.comment;
+    var wasTag = ntlrNodeIdFromTag(before);
     layer.comment = op.comment;
+    // Both sides: the tag the layer left, and the tag it joined. A rollback
+    // re-tags, so the same bookkeeping has to hold in the inverse direction.
+    ntlpReindexTag(ctx, wasTag);
+    var nowTag = ntlrNodeIdFromTag(op.comment);
+    if (nowTag !== wasTag) ntlpReindexTag(ctx, nowTag);
     return { op: 'setComment', node: op.node, nativeId: op.nativeId, comment: before };
 }
 
