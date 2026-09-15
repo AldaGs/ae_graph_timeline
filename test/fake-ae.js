@@ -132,6 +132,28 @@ export class FakeLayer {
     // modified nor moves app.project.revision when this changes, which is what
     // lets the panel mirror its own selection onto a click.
     this.selected = false;
+    // A text layer's Source Text. Its value is a TextDocument - an object
+    // carrying the string ALONGSIDE the font, size, colour and justification,
+    // which is why the writer mutates the document it was given rather than
+    // building a new one. The fake models that faithfully, so a writer that
+    // replaced the document would visibly lose the typography here too.
+    const layer = this;   // the getter below is on an object literal, where
+                          // `this` would be the literal and not the layer
+    this.textDocument = { text: '', font: 'Helvetica', fontSize: 72, tracking: 0 };
+    this.sourceText = {
+      matchName: 'ADBE Text Document',
+      numKeys: 0,
+      expressionEnabled: false,
+      canSetExpression: true,
+      get value() { return layer.textDocument; },
+      setValue(doc) {
+        layer.textDocument = doc;
+        if (layer.comp) layer.comp.project.revision++;
+      },
+    };
+    this.textGroup = {
+      property: (name) => (name === 'ADBE Text Document' ? this.sourceText : null),
+    };
     this.inPoint = 0;
     this.outPoint = 5;
     this.removed = false;
@@ -164,6 +186,9 @@ export class FakeLayer {
   property(matchName) {
     if (matchName === 'ADBE Transform Group') return this.transform;
     if (matchName === 'ADBE Effect Parade') return this.effectParade;
+    // Only a text layer has one, which is the whole point: the writer has to
+    // refuse a setText aimed at a solid, and it can only refuse what is absent.
+    if (matchName === 'ADBE Text Properties') return this.kind === 'text' ? this.textGroup : null;
     return null;
   }
   prop(name) {
@@ -216,7 +241,11 @@ export class FakeComp {
     this.layers = {
       addSolid(color, name) { return self._add(new FakeLayer(self, name, 'solid')); },
       addNull() { return self._add(new FakeLayer(self, 'Null 1', 'null')); },
-      addText() { return self._add(new FakeLayer(self, 'Text', 'text')); },
+      addText(text) {
+        const layer = self._add(new FakeLayer(self, 'Text', 'text'));
+        layer.textDocument.text = text === undefined ? '' : String(text);
+        return layer;
+      },
     };
   }
   _add(layer) { this._layers.push(layer); this.project.revision++; return layer; }
@@ -258,13 +287,19 @@ export function makeAE() {
     },
   };
 
-  // reader.jsx asks what kind of layer it is holding. Nothing in this fake is an
-  // instance of these, which is the right answer: a solid IS a footage layer in
-  // After Effects, so 'footage' is what a real read returns for one.
-  class CameraLayer {}
-  class LightLayer {}
-  class TextLayer {}
-  class ShapeLayer {}
+  // reader.jsx asks what kind of layer it is holding, with `instanceof`. These
+  // were empty classes, so every one of those tests was false and the reader
+  // could only ever answer 'footage' - which hid the fact that a text layer's
+  // string was never read, because the branch that reads it never ran.
+  //
+  // Answered from the layer's own `kind` through Symbol.hasInstance. A solid
+  // still reports 'footage', which is correct: a solid IS a footage layer in
+  // After Effects, and 'footage' is what a real read returns for one.
+  const layerClass = (kind) => ({ [Symbol.hasInstance]: (x) => x != null && x.kind === kind });
+  const CameraLayer = layerClass('camera');
+  const LightLayer = layerClass('light');
+  const TextLayer = layerClass('text');
+  const ShapeLayer = layerClass('shape');
 
   const sandbox = {
     app,

@@ -54,6 +54,7 @@ const OP_ORDER = [
   'setProp',
   'setEnabled',
   'setLabel',
+  'setText',
   'setBlendMode',
   'setEffect',
   'addEffect',
@@ -197,8 +198,12 @@ export function diff(graph, compState) {
     if (resolved.has(node.id)) continue;
     const kind = node.kind === 'effect' ? 'null' : node.kind;
     const props = node.kind === 'effect' ? {} : node.props;
+    // The string travels WITH the creation, like the label and the order do. A
+    // setText in the next pass would leave the layer empty for one write cycle,
+    // which is a frame of the comp showing the wrong thing.
+    const text = kind === 'text' && typeof node.text === 'string' ? node.text : undefined;
     ops.push({ op: 'createLayer', node: node.id, kind, name: node.name, props,
-      label: node.label, enabled: node.enabled, order: node.order });
+      label: node.label, enabled: node.enabled, order: node.order, text });
   }
 
   // ---- layers we own that the graph no longer wants -----------------------
@@ -257,6 +262,16 @@ export function diff(graph, compState) {
 
     if (layer.label !== undefined && layer.label !== node.label) {
       ops.push({ op: 'setLabel', node: node.id, from: layer.label, to: node.label });
+    }
+
+    // A text layer's string. Gated on the reader having OBSERVED it, like every
+    // other field above: emitting a write for something unread would have the
+    // diff correcting a value it cannot see, forever. `textLocked` is the
+    // reader saying the property is keyframed or expression-driven - the writer
+    // refuses those, so the diff must not ask.
+    if (layer.text !== undefined && !layer.textLocked
+        && typeof node.text === 'string' && layer.text !== node.text) {
+      ops.push({ op: 'setText', node: node.id, from: layer.text, to: node.text });
     }
 
     const wantEffects = node.kind === 'effect' 

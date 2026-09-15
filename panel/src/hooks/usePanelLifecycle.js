@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createGraphCommands } from '../graphCommands.js';
 import { createHost } from '../bridge/cep.js';
 import {
-  createGraph, addNode, defaultLayerProps, hydrateFromComp, replaceGraph,
+  createGraph, addNode, defaultLayerProps, hydrateFromComp, nodeIdFromTag, replaceGraph,
 } from '../../../src/graph.js';
 import { diff } from '../../../src/diff.js';
 import { revisionCall, parseRevision, compareSnapshots, snapshot } from '../../../src/drift.js';
@@ -36,7 +36,7 @@ function seedGraph(graph) {
     effects: [{ matchName: 'ADBE Fill', name: 'Fill', params: { 'ADBE Fill-0002': [1, 0.5, 0, 1] } }],
     ui: { x: 360, y: 40 } });
   addNode(graph, { id: 'n4', name: 'Title', kind: 'text', order: 4, parent: 'n3',
-    props: defaultLayerProps('text'), ui: { x: 700, y: 40 } });
+    text: 'The quick brown fox', props: defaultLayerProps('text'), ui: { x: 700, y: 40 } });
   addNode(graph, { id: 'n5', name: 'Wiggle', kind: 'expression',
     expression: 'wiggle(2, 10)', ui: { x: 40, y: 320 } });
   return graph;
@@ -547,5 +547,22 @@ export function usePanelLifecycle() {
     }
   }, [drift, graph, restoreGraph, saveGraph]);
 
-  return { showEffectControls, graph, version, selected, setSelected, message, setMessage, contextMenu, host, link, startup, drift, storageRef, saveStatus, saveGraph, canEdit, commands, handlePaneContextMenu, closeContextMenu, addEffectNode, addExpressionNode, ping, onGestureStart, onGestureEnd, addLayer, rename, remove, addFx, setBlend, counts, startEmptyGraph, createNewComp, inspectActiveComp, reviewSaved, keepGraph, useAeChanges };
+  // Which text layers After Effects will not let the graph write to.
+  //
+  // This is OBSERVED state, not desired state, so it belongs to the baseline
+  // and not to a node: a keyframed Source Text is a fact about the comp. Read
+  // through a ref, which is sound here only because every path that sets the
+  // baseline also redraws - and the panel re-renders on that.
+  const textLocked = useMemo(() => {
+    const locked = new Set();
+    for (const layer of baselineRef.current?.layers || []) {
+      if (layer.textLocked) {
+        const id = nodeIdFromTag(layer.comment);
+        if (id) locked.add(id);
+      }
+    }
+    return locked;
+  }, [version, baselineRef]);
+
+  return { textLocked, showEffectControls, graph, version, selected, setSelected, message, setMessage, contextMenu, host, link, startup, drift, storageRef, saveStatus, saveGraph, canEdit, commands, handlePaneContextMenu, closeContextMenu, addEffectNode, addExpressionNode, ping, onGestureStart, onGestureEnd, addLayer, rename, remove, addFx, setBlend, counts, startEmptyGraph, createNewComp, inspectActiveComp, reviewSaved, keepGraph, useAeChanges };
 }

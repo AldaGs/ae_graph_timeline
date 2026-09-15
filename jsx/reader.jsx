@@ -222,6 +222,27 @@ function ntlrReadComp(comp, includeEffects) {
             } catch (eBlend) {
                 ntlrNote('blendMode', eBlend);
             }
+            // A text layer's string. Read for the same reason label and blend
+            // mode are: the diff only emits a write for a field it observed, so
+            // an unread field is one the inspector could change forever while
+            // After Effects kept the old value and the drift check reported
+            // clean. Until this existed, "+ Text" made an empty layer that
+            // nothing in the panel could ever fill.
+            if (rec.kind === 'text') {
+                try {
+                    var sourceText = ntlrTextProp(layer);
+                    if (sourceText !== null) {
+                        rec.text = String(sourceText.value.text);
+                        // Keyframed or expression-driven source text is not
+                        // ours to overwrite, and the writer refuses it. Said
+                        // here so the panel can show the field as read-only
+                        // rather than letting the user type into a refusal.
+                        if (sourceText.numKeys > 0 || sourceText.expressionEnabled) rec.textLocked = true;
+                    }
+                } catch (eText) {
+                    ntlrNote('sourceText', eText);
+                }
+            }
             var tg;
             try {
                 tg = layer.property('ADBE Transform Group');

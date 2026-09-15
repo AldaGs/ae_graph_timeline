@@ -9,8 +9,8 @@
 //
 // The behaviour of a number is in ScrubValue and src/scrub.js.
 
-import { useCallback, useEffect, useState } from 'react';
-import { ChevronDown, ChevronRight, Link2 } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { ChevronDown, ChevronRight, Link2, Lock } from 'lucide-react';
 
 import { BLEND_MODES, desiredExpressions } from '../../../src/graph.js';
 import { scrubFieldsFor, scrubLabelFor, withComponent } from '../../../src/scrub.js';
@@ -90,7 +90,73 @@ function PropertyRows({ node, prop, value, driven = false, label, onWrite, onGes
   ));
 }
 
-export default function Inspector({ graph, selected, commands, editable, onError }) {
+/**
+ * A text layer's string.
+ *
+ * A textarea, not an input, because After Effects text is multi-line and a
+ * single-line box would quietly make a two-line title impossible to type.
+ *
+ * Committed on blur rather than on every keystroke: each commit is a write to
+ * the graph and so an entry in AE's 99-deep undo stack, and a typist would
+ * spend the whole stack on one sentence. Escape restores what the graph holds;
+ * Enter inserts a newline, as it must in a multi-line field, so there is
+ * deliberately no Enter-to-commit here.
+ */
+function TextEditor({ node, locked, commands, onError }) {
+  const [draft, setDraft] = useState(node.text ?? '');
+  const [editing, setEditing] = useState(false);
+  // Escape blurs, and blur commits. A `setDraft` in the Escape handler has not
+  // applied by the time the blur handler reads it, so the cancelled edit was
+  // committed anyway - the exact bug Enter had in ScrubValue. A ref is visible
+  // immediately, which is the whole reason it is one.
+  const cancelled = useRef(false);
+
+  // A string that changed underneath us - an AE edit the panel adopted - must
+  // be shown, but not while the user is mid-sentence.
+  useEffect(() => { if (!editing) setDraft(node.text ?? ''); }, [node.id, node.text, editing]);
+
+  const commit = () => {
+    if (draft === (node.text ?? '')) return;
+    try { commands.setText(node.id, draft); }
+    catch (e) { onError(e.message); setDraft(node.text ?? ''); }
+  };
+
+  return (
+    <div className="ntl-irow is-text">
+      <span className="ntl-irow-label"><span className="ntl-irow-name">Source</span></span>
+      <textarea
+        className="ntl-text-input"
+        aria-label={`${node.name} source text`}
+        rows={2}
+        value={draft}
+        readOnly={locked}
+        placeholder={locked ? '' : 'Type the layer’s text'}
+        title={locked ? 'Keyframed or expression-driven in After Effects — not the graph’s to overwrite' : undefined}
+        onFocus={() => setEditing(true)}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={() => {
+          setEditing(false);
+          if (cancelled.current) { cancelled.current = false; setDraft(node.text ?? ''); return; }
+          commit();
+        }}
+        onKeyDown={(e) => {
+          // The canvas deletes the selected node on Delete; a textarea must not
+          // lose the layer because the user backspaced past the first character.
+          e.stopPropagation();
+          // Enter is deliberately NOT a commit: this is multi-line text, and a
+          // field where Enter ends the edit cannot hold a second line.
+          if (e.key === 'Escape') { cancelled.current = true; e.currentTarget.blur(); }
+        }}
+      />
+      <span className="ntl-irow-state">
+        {locked && <Lock size={11} strokeWidth={2} aria-label="Keyframed or expression-driven" />}
+      </span>
+    </div>
+  );
+}
+
+export default function Inspector({ graph, selected, commands, editable, onError,
+                                   textLocked = new Set() }) {
   const node = graph.nodes[selected];
   const [name, setName] = useState('');
   const [search, setSearch] = useState('');
@@ -124,6 +190,14 @@ export default function Inspector({ graph, selected, commands, editable, onError
     </div>
 
     <fieldset disabled={!editable}>
+      {/* Above Transform, because for a title the string is what the layer IS
+          and its position is a detail of where it sits. */}
+      {node.kind === 'text' && (
+        <Section title="Text">
+          <TextEditor node={node} locked={textLocked.has(node.id)} commands={commands} onError={onError} />
+        </Section>
+      )}
+
       {node.kind !== 'expression' && hasParams && (
         <Section title={layer ? 'Transform' : 'Parameters'}>
           {Object.entries(node.props).map(([prop, value]) => (

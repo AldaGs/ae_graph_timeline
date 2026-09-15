@@ -108,7 +108,7 @@ function EffectSection({ effect, nodeId }) {
 function LayerNode({ id, data, selected }) {
   const {
     name, kind, ports = [], props = {}, driven = {},
-    effects = [], blendMode = 'normal', labelColor,
+    effects = [], blendMode = 'normal', labelColor, text,
   } = data;
 
   // The header colour comes from AE's label system. If no label is set,
@@ -128,6 +128,17 @@ function LayerNode({ id, data, selected }) {
           </span>
         )}
       </header>
+
+      {/* A text layer's string, shown because it is the one thing that
+          identifies a title at a glance - the NAME rarely is, since After
+          Effects calls them all "Text" until somebody renames them. Read-only
+          here: the canvas is the map, and typing a paragraph into a card that
+          has to stay card-sized belongs in the inspector. */}
+      {text !== undefined && (
+        <div className="ntl-node-text" title={text || 'Empty — type in the inspector'}>
+          {text || <span className="ntl-node-text-empty">empty</span>}
+        </div>
+      )}
 
       {/* Parenting is a real AE pointer, not an expression, so it gets its own
           pair of ports at the top and its own wire colour. */}

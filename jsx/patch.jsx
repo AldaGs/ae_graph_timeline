@@ -114,7 +114,11 @@ function ntlpCreateLayer(ctx, op) {
     if (op.kind === 'null') {
         layer = comp.layers.addNull();
     } else if (op.kind === 'text') {
-        layer = comp.layers.addText('');
+        // Created WITH its string, in the same undo group. A layer that had to
+        // wait for a setText would be empty for one write cycle. Safe to let
+        // addText build the document here, unlike ntlpSetText: a layer that did
+        // not exist a moment ago has no typography to preserve.
+        layer = comp.layers.addText(op.text === undefined || op.text === null ? '' : String(op.text));
     } else {
         layer = comp.layers.addSolid([0.5, 0.5, 0.5], op.name || op.node,
                                      comp.width, comp.height, 1);
@@ -272,6 +276,30 @@ function ntlpSetProp(ctx, op) {
     p.setValue(op.to);
     ctx.writes++;
     return before === null ? null : { op: 'setProp', node: op.node, prop: op.prop, to: before };
+}
+
+/**
+ * A text layer's string.
+ *
+ * The whole TextDocument is read, its text field changed, and the SAME object
+ * set back. Constructing a fresh TextDocument would be shorter and would silently
+ * reset the layer's font, size, colour, tracking and justification to After
+ * Effects' defaults - the user's typography thrown away to change a word.
+ */
+function ntlpSetText(ctx, op) {
+    var layer = ntlpLayer(ctx, op.node);
+    var prop = ntlrTextProp(layer);
+    if (prop === null) throw ntlpFail(op.node + ' is not a text layer');
+    // The same two states every other write checks, and for the same reason:
+    // both throw in After Effects rather than failing politely.
+    ntlpWritable(prop, op.node, 'sourceText');
+    var doc = prop.value;
+    var before = String(doc.text);
+    if (before === op.to) return null;
+    doc.text = op.to;
+    prop.setValue(doc);
+    ctx.writes++;
+    return { op: 'setText', node: op.node, to: before };
 }
 
 function ntlpSetParent(ctx, op) {
@@ -473,6 +501,7 @@ function ntlpApplyOne(ctx, op) {
         case 'setComment':      return ntlpSetComment(ctx, op);
         case 'setEnabled':      return ntlpSetEnabled(ctx, op);
         case 'setLabel':        return ntlpSetLabel(ctx, op);
+        case 'setText':         return ntlpSetText(ctx, op);
         case 'reorder':         return ntlpReorder(ctx, op);
     }
     throw ntlpFail('unknown op "' + String(op.op) + '"');

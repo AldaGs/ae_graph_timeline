@@ -184,3 +184,18 @@ function ntlrScanTags(comp) {
     }
     return { byTag: map, counts: dupes, byNativeId: byNativeId };
 }
+
+/**
+ * A text layer's Source Text property, or null when the layer has none.
+ *
+ * Shared, because the reader and the writer must look in the SAME place: a
+ * writer that found the property by a different route than the reader could
+ * write where nothing was read, and the diff would then re-emit the same op
+ * forever. Match names rather than display names, which are localized.
+ */
+function ntlrTextProp(layer) {
+    var group = layer.property('ADBE Text Properties');
+    if (!group) return null;
+    var prop = group.property('ADBE Text Document');
+    return prop || null;
+}

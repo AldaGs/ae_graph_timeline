@@ -181,6 +181,10 @@ export function addNode(graph, node) {
     label: node.label ?? KIND_DEFAULT_LABEL[node.kind || 'solid'] ?? 0,
     enabled: node.enabled ?? true,
     props: { ...(node.props || {}) },
+    // A text layer's string. Empty rather than null for every kind, so a node
+    // that becomes text later has somewhere to put one; only text layers ever
+    // have it written, because only they have a Source Text property.
+    text: typeof node.text === 'string' ? node.text : '',
     // For M3 effect nodes
     matchName: node.matchName || null,
     // For M3 expression nodes
@@ -350,6 +354,7 @@ export function hydrateFromComp(graph, compState) {
         blendMode: layer.blendMode,
         label: layer.label,
         enabled: layer.enabled,
+        text: layer.text,
         props: { ...layer.props },
         // We do not recover effects here since they belong to effect nodes,
         // which are a bigger challenge for M6 persistence.
@@ -382,10 +387,16 @@ export function setNodeProperty(graph, nodeId, prop, value) {
 export function setNodeField(graph, nodeId, field, value) {
   const node = graph.nodes[nodeId];
   if (!node) return null;
-  if (!['blendMode', 'enabled', 'label'].includes(field)) throw new Error('Unsupported node field');
+  if (!['blendMode', 'enabled', 'label', 'text'].includes(field)) throw new Error('Unsupported node field');
   if (field === 'blendMode' && !BLEND_MODES.includes(value)) throw new Error('Unknown blend mode');
   if (field === 'enabled' && typeof value !== 'boolean') throw new Error('Visibility must be boolean');
   if (field === 'label' && (!Number.isInteger(value) || value < 0 || value >= LABEL_COLORS.length)) throw new Error('Invalid label');
+  // Only a text layer has a Source Text property to write to. Refused here
+  // rather than at the panel, because the model is what the writer is handed.
+  if (field === 'text') {
+    if (typeof value !== 'string') throw new Error('Text must be a string');
+    if (node.kind !== 'text') throw new Error('Only a text layer has editable text');
+  }
   if (node[field] === value) return null;
   node[field] = value;
   return node;

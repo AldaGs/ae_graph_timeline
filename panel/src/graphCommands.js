@@ -105,6 +105,12 @@ export function createGraphCommands({ graph, getLoop, redraw, setSelected = () =
       return commit(`${enabled ? 'Show' : 'Hide'} ${node.name}`, enabled);
     },
 
+    setText(nodeId, text) {
+      const node = setNodeField(graph, nodeId, 'text', text);
+      if (!node) return null;
+      return commit(`Edit ${node.name} text`, text);
+    },
+
     setLabel(nodeId, label) {
       const node = setNodeField(graph, nodeId, 'label', label);
       if (!node) return null;

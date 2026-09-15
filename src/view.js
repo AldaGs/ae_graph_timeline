@@ -38,6 +38,10 @@ export function toFlowNodes(graph) {
       labelColor: LABEL_COLORS[node.label ?? KIND_DEFAULT_LABEL[node.kind] ?? 0] || null,
       // The inputs a node offers are exactly the properties the graph owns on
       // it, so a port list cannot drift from what the reconciler would write.
+      // A text layer's string. On the card because it is the one thing that
+      // identifies a title at a glance, and the name rarely is - AE calls them
+      // all "Text" until somebody renames them.
+      text: node.kind === 'text' ? (node.text ?? '') : undefined,
       ports: Object.keys(node.props).sort(),
       props: node.props,
       matchName: node.matchName || null,

@@ -216,6 +216,11 @@ export function normalizeCompState(payload, { tolerateReadErrors = false } = {})
       // to a value nobody chose.
       label: Number.isInteger(l.label) ? l.label : undefined,
       blendMode: blendModeOf(l, where, warnings),
+      // A text layer's string, under the same "only when observed" rule. The
+      // lock says the host found it keyframed or expression-driven, which the
+      // writer refuses - so the diff must not ask and the panel must not offer.
+      text: typeof l.text === 'string' ? l.text : undefined,
+      textLocked: l.textLocked === true ? true : undefined,
       // Parents travel as TAGS, not indices. An index is a position, not an
       // identity, and it changes the moment anything is reordered.
       parentTag: l.parentTag ?? null,
