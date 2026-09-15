@@ -1,8 +1,9 @@
-// The outliner, read as Blender reads one.
+// The outliner, drawn the way Blender's is.
 //
-// A tree, nested by parent, with a disclosure triangle, a type icon, a name,
-// and the per-row toggles on the right. The tree itself is data and lives in
-// src/outline.js with its own tests; this file is the drawing and the pointer
+// Blender's LOOK, not its hierarchy: a disclosure triangle, a type icon, a name,
+// indent guides, and the per-row toggles pinned right. Every layer is a child of
+// the composition and nothing else - see src/outline.js, which is where the tree
+// lives as data, with its own tests. This file is the drawing and the pointer
 // handling, and nothing else.
 //
 // Icons are lucide, chosen to match what After Effects puts in its own timeline
@@ -43,6 +44,25 @@ const ROW_ICON = {
 function RowIcon({ row }) {
   const Icon = ROW_ICON[row.type] || KIND_ICON[row.kind] || ImageIcon;
   return <Icon className="ntl-out-icon" size={13} strokeWidth={1.75} aria-hidden="true" />;
+}
+
+// The parent is not drawn: the design has no chip for it, and nesting the row
+// under its parent is exactly what this outliner does not do. It is said on
+// hover instead, so the relationship is available without costing a column.
+const titleOf = (row, graph) => {
+  const parent = row.parent ? graph.nodes[row.parent]?.name : null;
+  if (parent) return `${row.name} — parented to ${parent}`;
+  return row.matchName || row.name;
+};
+
+// "All", "none" or "some". A checkbox cannot be told `indeterminate` through an
+// attribute, so the DOM node is set directly - the one place this file reaches
+// past React, and only because the platform gives no other way.
+function TriCheckbox({ checked, mixed, disabled, label, onChange }) {
+  const set = (node) => { if (node) node.indeterminate = !checked && mixed; };
+  return <input type="checkbox" className="ntl-out-check" ref={set}
+    checked={checked} disabled={disabled} aria-label={label} title={label}
+    onChange={(e) => onChange(e.target.checked)} />;
 }
 
 // Where a drop lands relative to the row under the pointer. Blender shows the
@@ -86,6 +106,22 @@ export function Outliner({ graph, commands, version, editable = true, selected, 
     ? row.nodeId !== null && selected === row.nodeId
     : selected === row.id);
 
+  // The reference puts a checkbox on the collection row, and the honest reading
+  // of it here is "is every layer in this comp visible". Wrapped in ONE gesture:
+  // S5 put After Effects' undo stack at 99 entries, and hiding twelve layers is
+  // one thing the user did, not twelve.
+  const setAllEnabled = useCallback(async (enabled) => {
+    const layers = groups.find((g) => g.type === 'comp')?.children || [];
+    const changing = layers.filter((row) => row.enabled !== enabled);
+    if (!changing.length) return;
+    commands.beginGesture(enabled ? 'Show all layers' : 'Hide all layers');
+    try {
+      for (const row of changing) commands.setEnabled(row.id, enabled);
+    } finally {
+      await commands.endGesture();
+    }
+  }, [groups, commands]);
+
   const onDrop = useCallback((event, row) => {
     event.preventDefault();
     setDropOn(null);
@@ -95,9 +131,9 @@ export function Outliner({ graph, commands, version, editable = true, selected, 
     if (!editable || !source || row.type !== 'layer') return;
     const next = moveInOutline(groups, source, row.id,
       { before: dropHalf(event, event.currentTarget) === 'before' });
-    // null means the move would change nothing, or cannot be made. Either way
-    // there is no reorder to send, and sending one would cost an undo entry for
-    // a drag that did not move anything.
+    // null means the move would change nothing. There is no reorder to send,
+    // and sending one anyway would cost an undo entry for a drag that moved
+    // nothing - out of the 99 After Effects keeps.
     if (next) commands.reorder(next);
   }, [editable, groups, commands]);
 
@@ -163,10 +199,20 @@ export function Outliner({ graph, commands, version, editable = true, selected, 
               <RowIcon row={row} />
 
               <button className="ntl-out-name" onClick={() => selectRow(row)}
-                title={row.matchName || row.name}>
+                title={titleOf(row, graph)}>
                 {row.name}
                 {row.count !== undefined && <span className="ntl-out-count">{row.count}</span>}
               </button>
+
+              {row.type === 'comp' && (
+                <TriCheckbox
+                  checked={(row.children || []).every((child) => child.enabled)}
+                  mixed={(row.children || []).some((child) => child.enabled)}
+                  disabled={!editable}
+                  label={`Show every layer in ${row.name}`}
+                  onChange={(next) => void setAllEnabled(next)}
+                />
+              )}
 
               {row.type === 'layer' && (
                 <>

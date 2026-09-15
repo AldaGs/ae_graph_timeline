@@ -1,15 +1,19 @@
 // The outliner's tree, as data. No React involved.
 //
-// The claim worth testing is not "a tree was built". It is that the tree and
-// After Effects' flat layer stack stay the same thing: what the user reads top
-// to bottom in the outliner is the order the comp is in, and a drag produces an
-// order the tree can redraw.
+// The claim worth testing is that the outliner and After Effects' layer stack
+// stay the same thing: every layer is a child of the composition, read top to
+// bottom in the order the comp is in, and a drag produces that order back.
+//
+// Depth means one thing only - a layer under its comp, an effect under the layer
+// whose stack it is in. Parenting is NOT nesting here: nesting layers under
+// their parents would make the outliner disagree with the timeline about what
+// the comp is.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { createGraph, addNode, addEdge } from '../src/graph.js';
-import { outlineTree, outlineRows, outlineOrder, moveInOutline, subtreeIds } from '../src/outline.js';
+import { outlineTree, outlineRows, outlineOrder, moveInOutline } from '../src/outline.js';
 
 function scene() {
   const graph = createGraph('Shot 01');
@@ -22,7 +26,10 @@ function scene() {
 
 const names = (rows) => rows.map((r) => `${'  '.repeat(r.depth)}${r.name}`);
 
-test('the tree nests by parent and is titled with the composition', () => {
+test('every layer is a child of the composition, and of nothing else', () => {
+  // Two of these layers are parented to Controller. That is a relationship the
+  // canvas draws; it is not a position in the stack, and the outliner must not
+  // rearrange the stack to express it.
   const groups = outlineTree(scene());
   assert.equal(groups.length, 1);
   assert.equal(groups[0].type, 'comp');
@@ -32,27 +39,27 @@ test('the tree nests by parent and is titled with the composition', () => {
     'Shot 01',
     '  Background',
     '  Controller',
-    '    Card',
-    '    Title',
+    '  Card',
+    '  Title',
   ]);
+  assert.deepEqual(outlineRows(groups).map((r) => r.depth), [0, 1, 1, 1, 1]);
 });
 
 test('the rows read top to bottom in the order After Effects holds', () => {
-  // The two have to be the same thing, or the outliner is showing an order the
-  // comp is not in.
   const groups = outlineTree(scene());
   assert.deepEqual(outlineOrder(groups), ['bg', 'ctl', 'card', 'title']);
 });
 
-test('a collapsed row hides its children and nothing else', () => {
-  const groups = outlineTree(scene());
-  assert.deepEqual(names(outlineRows(groups, new Set(['ctl']))), [
-    'Shot 01', '  Background', '  Controller',
-  ]);
-  assert.deepEqual(names(outlineRows(groups, new Set(['@comp']))), ['Shot 01']);
-  const rows = outlineRows(groups);
-  assert.equal(rows.find((r) => r.id === 'ctl').hasChildren, true);
-  assert.equal(rows.find((r) => r.id === 'card').hasChildren, false);
+test('a parented layer still says so, without being moved for it', () => {
+  // Carried as a fact about the row, for a tooltip to use. Losing it entirely
+  // would be the other way to get this wrong.
+  const rows = outlineRows(outlineTree(scene()));
+  assert.equal(rows.find((r) => r.id === 'card').parent, 'ctl');
+  assert.equal(rows.find((r) => r.id === 'bg').parent, null);
+  // A parent that is gone is not a parent.
+  const graph = scene();
+  graph.nodes.card.parent = 'missing';
+  assert.equal(outlineRows(outlineTree(graph)).find((r) => r.id === 'card').parent, null);
 });
 
 test('effects appear under the layer they belong to, inline or wired', () => {
@@ -68,18 +75,33 @@ test('effects appear under the layer they belong to, inline or wired', () => {
     '  Background',
     '    Fill',
     '  Controller',
-    '    Card',
-    '      Gaussian Blur',
-    '    Title',
+    '  Card',
+    '    Gaussian Blur',
+    '  Title',
   ]);
-  // An effect node's host null is machinery: it is never a layer of its own,
-  // and it is not in the stacking order.
+  // An effect node's host null is machinery: never a layer of its own, and not
+  // in the stacking order.
   assert.deepEqual(outlineOrder(groups), ['bg', 'ctl', 'card', 'title']);
   // A standalone effect node keeps its id, so clicking the row selects the node
   // the user actually drew.
-  const wired = outlineRows(groups).find((r) => r.name === 'Gaussian Blur');
-  assert.equal(wired.nodeId, 'blur');
-  assert.equal(outlineRows(groups).find((r) => r.name === 'Fill').nodeId, null);
+  const rows = outlineRows(groups);
+  assert.equal(rows.find((r) => r.name === 'Gaussian Blur').nodeId, 'blur');
+  assert.equal(rows.find((r) => r.name === 'Fill').nodeId, null);
+  assert.equal(rows.find((r) => r.name === 'Fill').parentId, 'bg');
+});
+
+test('a collapsed row hides its children and nothing else', () => {
+  const graph = scene();
+  graph.nodes.bg.effects = [{ matchName: 'ADBE Fill', name: 'Fill', params: {} }];
+  const groups = outlineTree(graph);
+  assert.deepEqual(names(outlineRows(groups, new Set(['bg']))), [
+    'Shot 01', '  Background', '  Controller', '  Card', '  Title',
+  ]);
+  assert.deepEqual(names(outlineRows(groups, new Set(['@comp']))), ['Shot 01']);
+  const rows = outlineRows(groups);
+  assert.equal(rows.find((r) => r.id === 'bg').hasChildren, true);
+  assert.equal(rows.find((r) => r.id === 'ctl').hasChildren, false,
+    'a layer with no effects has nothing to expand, parented children included');
 });
 
 test('expression nodes are their own group, outside the stacking order', () => {
@@ -93,13 +115,33 @@ test('expression nodes are their own group, outside the stacking order', () => {
   assert.deepEqual(outlineOrder(groups), ['bg', 'ctl', 'card', 'title']);
 });
 
-test('a drag moves a row, and its children travel with it', () => {
-  // The tree nests by parent and the flat order is its walk, so leaving a child
-  // behind would print an order the tree could never redraw.
+test('an effect node wired to nothing is grouped, not lost', () => {
+  // A just-dropped effect node is wired to no layer, so no layer claims it -
+  // and it would appear nowhere: drawn on the canvas, absent from the outliner.
+  const graph = scene();
+  addNode(graph, { id: 'loose', kind: 'effect', name: 'Tint',
+    matchName: 'ADBE Tint', props: {} });
+  let groups = outlineTree(graph);
+  assert.deepEqual(groups.map((g) => g.type), ['comp', 'unwired']);
+  assert.equal(outlineRows(groups).find((r) => r.name === 'Tint').nodeId, 'loose');
+  assert.deepEqual(outlineOrder(groups), ['bg', 'ctl', 'card', 'title'],
+    'and it is still not in the stacking order');
+
+  // Wire it, and it moves under the layer whose stack it joined.
+  addEdge(graph, { id: 'f1', from: 'bg', to: 'loose', kind: 'flow' });
+  groups = outlineTree(graph);
+  assert.deepEqual(groups.map((g) => g.type), ['comp']);
+  assert.deepEqual(names(outlineRows(groups)), [
+    'Shot 01', '  Background', '    Tint', '  Controller', '  Card', '  Title',
+  ]);
+});
+
+test('a drag moves one row, and takes nothing with it', () => {
+  // Nothing is nested under a layer, so nothing travels with it - including the
+  // layers parented to it, which keep their own places in the stack.
   const groups = outlineTree(scene());
-  assert.deepEqual(subtreeIds(groups, 'ctl'), ['ctl', 'card', 'title']);
   assert.deepEqual(moveInOutline(groups, 'ctl', 'bg', { before: true }),
-    ['ctl', 'card', 'title', 'bg']);
+    ['ctl', 'bg', 'card', 'title']);
   assert.deepEqual(moveInOutline(groups, 'bg', 'title', { before: false }),
     ['ctl', 'card', 'title', 'bg']);
   assert.deepEqual(moveInOutline(groups, 'title', 'card', { before: true }),
@@ -109,31 +151,25 @@ test('a drag moves a row, and its children travel with it', () => {
 test('a move that changes nothing, or cannot be made, is refused', () => {
   const groups = outlineTree(scene());
   assert.equal(moveInOutline(groups, 'bg', 'bg'), null, 'onto itself');
-  assert.equal(moveInOutline(groups, 'ctl', 'card'), null, 'into its own subtree');
   assert.equal(moveInOutline(groups, 'bg', 'ctl', { before: true }), null,
     'already immediately above it');
+  assert.equal(moveInOutline(groups, 'ctl', 'bg', { before: false }), null,
+    'already immediately below it');
   assert.equal(moveInOutline(groups, 'bg', 'nope'), null, 'onto a row that is not there');
   assert.equal(moveInOutline(groups, 'nope', 'bg'), null, 'from a row that is not there');
 });
 
-test('a layer whose parent is gone is still shown, not dropped', () => {
-  const graph = createGraph('Shot');
-  addNode(graph, { id: 'a', kind: 'solid', name: 'Orphan', order: 1, parent: 'missing' });
-  const groups = outlineTree(graph);
-  assert.deepEqual(names(outlineRows(groups)), ['Shot', '  Orphan']);
-  assert.deepEqual(outlineOrder(groups), ['a']);
-});
-
-test('a parent cycle in a hand-edited file does not hang the panel', () => {
-  // The graph refuses to build one; a .ntl file on disk is not the graph's to
-  // vouch for, and an outliner that recursed forever would take the panel down.
+test('a parent cycle in a hand-edited file is simply not a hierarchy', () => {
+  // The graph refuses to build one, and a .ntl file on disk is not the graph's
+  // to vouch for. With nothing nested there is nothing to recurse into, which
+  // is the quiet benefit of a flat outliner.
   const graph = createGraph('Shot');
   addNode(graph, { id: 'a', kind: 'solid', name: 'A', order: 1 });
   addNode(graph, { id: 'b', kind: 'solid', name: 'B', order: 2 });
   graph.nodes.a.parent = 'b';
   graph.nodes.b.parent = 'a';
   const groups = outlineTree(graph);
-  assert.deepEqual(outlineOrder(groups).sort(), ['a', 'b']);
+  assert.deepEqual(outlineOrder(groups), ['a', 'b']);
   assert.equal(outlineRows(groups).length, 3);
 });
 
@@ -141,27 +177,4 @@ test('an empty graph produces no groups rather than an empty composition', () =>
   assert.deepEqual(outlineTree(createGraph('Shot')), []);
   assert.deepEqual(outlineRows([]), []);
   assert.deepEqual(outlineOrder([]), []);
-});
-
-test('an effect node wired to nothing is grouped, not lost', () => {
-  // A just-dropped effect node is wired to no layer, so no layer claims it -
-  // and it would appear nowhere: drawn on the canvas, absent from the outliner.
-  // It gets its own group until it is wired.
-  const graph = scene();
-  addNode(graph, { id: 'loose', kind: 'effect', name: 'Tint',
-    matchName: 'ADBE Tint', props: {} });
-  let groups = outlineTree(graph);
-  assert.deepEqual(groups.map((g) => g.type), ['comp', 'unwired']);
-  const row = outlineRows(groups).find((r) => r.name === 'Tint');
-  assert.equal(row.nodeId, 'loose', 'clicking it selects the node the user drew');
-  assert.deepEqual(outlineOrder(groups), ['bg', 'ctl', 'card', 'title'],
-    'and it is still not in the stacking order');
-
-  // Wire it, and it moves under the layer whose stack it joined.
-  addEdge(graph, { id: 'f1', from: 'bg', to: 'loose', kind: 'flow' });
-  groups = outlineTree(graph);
-  assert.deepEqual(groups.map((g) => g.type), ['comp']);
-  assert.deepEqual(names(outlineRows(groups)), [
-    'Shot 01', '  Background', '    Tint', '  Controller', '    Card', '    Title',
-  ]);
 });

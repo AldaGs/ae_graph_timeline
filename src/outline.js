@@ -1,18 +1,14 @@
 // The outliner's tree, as data.
 //
-// Blender's outliner nests objects under their parents and reads top to bottom;
-// After Effects' timeline is a flat stack where a layer's parent may sit
-// anywhere. Both are true at once, and this file is where they are reconciled:
+// Blender's LOOK, not Blender's hierarchy. Every layer is a child of the
+// composition and nothing else: After Effects' timeline is a flat stack, and
+// nesting layers under their parents would make the outliner disagree with the
+// timeline about what the comp is. A layer's parent is a relationship, and the
+// canvas is where a relationship belongs.
 //
-//   - the tree NESTS by parent, because that is the relationship a user is
-//     actually looking for when they open an outliner;
-//   - the flat order is the tree's depth-first walk, so what the user reads top
-//     to bottom IS the AE stacking order. Nothing is displayed that does not
-//     correspond to a real position in the comp.
-//
-// The consequence is deliberate and worth stating: dragging a parent takes its
-// children with it. That is the only reading of "move this row" that keeps the
-// two orders the same thing.
+// So a row's depth means one thing only: a layer sits under its composition, and
+// an effect sits under the layer whose stack it is in. An effect is not a layer,
+// has no position in the stack, and is never reordered.
 //
 // Pure. No React, no After Effects.
 
@@ -20,19 +16,19 @@ import { buildEffectFlowIndex } from './diff.js';
 import { KIND_DEFAULT_LABEL } from './graph.js';
 
 /**
- * The outliner's groups, nested.
+ * The outliner's groups.
  *
  * Layers come first, as one group standing for the composition - the thing a
- * Blender user would read as a collection. Expression nodes are their own
- * group: they are not layers, they have no place in the stacking order, and
- * listing them among things that do would imply one.
+ * Blender user would read as a collection. Expression nodes and unwired effect
+ * nodes are their own groups: they are not layers, they have no place in the
+ * stacking order, and listing them among things that do would imply one.
  */
 export function outlineTree(graph, { compName = null } = {}) {
   const flows = buildEffectFlowIndex(graph);
   const layers = [];
+  const effects = [];
   const logic = [];
 
-  const effects = [];
   for (const node of Object.values(graph?.nodes || {})) {
     if (node.kind === 'expression') { logic.push(node); continue; }
     // An effect node's host null is machinery. It appears under the layer whose
@@ -42,28 +38,23 @@ export function outlineTree(graph, { compName = null } = {}) {
   }
 
   const byOrder = (a, b) => (a.order || 0) - (b.order || 0) || a.id.localeCompare(b.id);
-  const childrenOf = new Map();
-  for (const node of layers) {
-    const parent = graph.nodes[node.parent] && node.parent !== node.id ? node.parent : null;
-    if (!childrenOf.has(parent)) childrenOf.set(parent, []);
-    childrenOf.get(parent).push(node);
-  }
+  const claimed = new Set();
 
-  // A parent cycle would recurse forever. The graph refuses to build one, but
-  // a hand-edited .ntl file is not the graph's to vouch for.
-  const seen = new Set();
-  const build = (parentId) => (childrenOf.get(parentId) || []).sort(byOrder).map((node) => {
-    if (seen.has(node.id)) return null;
-    seen.add(node.id);
-    return {
-      type: 'layer',
-      id: node.id,
-      name: node.name,
-      kind: node.kind,
-      enabled: node.enabled !== false,
-      label: node.label ?? KIND_DEFAULT_LABEL[node.kind] ?? 0,
-      order: node.order || 0,
-      effects: flows.effectsFor(node.id).map((fx, index) => ({
+  const rows = layers.sort(byOrder).map((node) => ({
+    type: 'layer',
+    id: node.id,
+    name: node.name,
+    kind: node.kind,
+    enabled: node.enabled !== false,
+    label: node.label ?? KIND_DEFAULT_LABEL[node.kind] ?? 0,
+    order: node.order || 0,
+    // The parent is a fact the row can SAY, not something to be nested by. A
+    // user scanning the outliner still wants to know a layer is parented; they
+    // do not want the stack rearranged in order to be told.
+    parent: graph.nodes[node.parent] && node.parent !== node.id ? node.parent : null,
+    effects: flows.effectsFor(node.id).map((fx, index) => {
+      if (fx.hostId) claimed.add(fx.hostId);
+      return {
         type: 'effect',
         // A standalone effect node keeps its own id, so clicking it selects the
         // node the user drew. An inline effect has none to give.
@@ -71,52 +62,31 @@ export function outlineTree(graph, { compName = null } = {}) {
         nodeId: fx.hostId || null,
         name: fx.name || fx.matchName,
         matchName: fx.matchName,
-      })),
-      children: build(node.id),
-    };
-  }).filter(Boolean);
-
-  const roots = build(null);
-  // A node orphaned by a parent that is gone, or stranded in a cycle, is still
-  // a layer in the comp. Shown at the top level rather than dropped.
-  const stranded = layers.filter((node) => !seen.has(node.id)).sort(byOrder);
-  for (const node of stranded) {
-    seen.add(node.id);
-    roots.push({ type: 'layer', id: node.id, name: node.name, kind: node.kind,
-      enabled: node.enabled !== false, label: node.label ?? 0, order: node.order || 0,
-      effects: [], children: [] });
-  }
+      };
+    }),
+  }));
 
   // An effect node the user has just dropped is wired to nothing, so no layer
   // claims it and it would appear NOWHERE - visible on the canvas and absent
   // from the outliner. Grouped on its own until it is wired, at which point it
   // moves under the layer whose stack it joined.
-  const claimed = new Set();
-  const claim = (nodes) => {
-    for (const node of nodes) {
-      for (const fx of node.effects || []) if (fx.nodeId) claimed.add(fx.nodeId);
-      claim(node.children || []);
-    }
-  };
-  claim(roots);
   const unwired = effects.filter((node) => !claimed.has(node.id)).sort(byOrder);
 
   const groups = [];
-  if (roots.length) {
+  if (rows.length) {
     groups.push({ type: 'comp', id: '@comp', name: compName || graph?.compName || 'Composition',
-                  children: roots, count: layers.length });
+                  children: rows, count: rows.length });
   }
   if (unwired.length) {
     groups.push({ type: 'unwired', id: '@unwired', name: 'Unwired effects', count: unwired.length,
       children: unwired.map((node) => ({
         type: 'effect', id: node.id, nodeId: node.id, kind: 'effect',
-        name: node.name, matchName: node.matchName, effects: [], children: [] })) });
+        name: node.name, matchName: node.matchName, effects: [] })) });
   }
   if (logic.length) {
     groups.push({ type: 'logic', id: '@logic', name: 'Expressions', count: logic.length,
       children: logic.sort(byOrder).map((node) => ({
-        type: 'expression', id: node.id, name: node.name, kind: 'expression',
-        effects: [], children: [] })) });
+        type: 'expression', id: node.id, name: node.name, kind: 'expression', effects: [] })) });
   }
   return groups;
 }
@@ -124,87 +94,61 @@ export function outlineTree(graph, { compName = null } = {}) {
 /**
  * The rows to render, flattened, with the depth each one sits at.
  *
+ * Three levels, and only three: group, layer, effect. Written as a loop rather
+ * than a recursion because that is the truth of the shape - a recursive walk
+ * here would imply a depth the model does not have.
+ *
  * @param collapsed  a Set of row ids whose children are hidden
  */
 export function outlineRows(groups, collapsed = new Set()) {
   const rows = [];
-  const walk = (nodes, depth, parentId) => {
-    for (const node of nodes) {
-      // Effects before children: an effect belongs TO this layer, a child is a
-      // separate layer that merely points at it.
-      const kids = [...(node.effects || []), ...(node.children || [])];
-      rows.push({ ...node, depth, parentId, hasChildren: kids.length > 0 });
-      if (kids.length && !collapsed.has(node.id)) walk(kids, depth + 1, node.id);
-    }
-  };
   for (const group of groups) {
     const kids = group.children || [];
     rows.push({ ...group, depth: 0, parentId: null, hasChildren: kids.length > 0 });
-    if (kids.length && !collapsed.has(group.id)) walk(kids, 1, group.id);
+    if (!kids.length || collapsed.has(group.id)) continue;
+    for (const row of kids) {
+      const fx = row.effects || [];
+      rows.push({ ...row, depth: 1, parentId: group.id, hasChildren: fx.length > 0 });
+      if (!fx.length || collapsed.has(row.id)) continue;
+      for (const effect of fx) {
+        rows.push({ ...effect, depth: 2, parentId: row.id, hasChildren: false });
+      }
+    }
   }
   return rows;
 }
 
-/** Every layer id, top to bottom: the AE stacking order the tree stands for. */
+/** Every layer id, top to bottom: the AE stacking order the outliner shows. */
 export function outlineOrder(groups) {
   const out = [];
-  const walk = (nodes) => {
-    for (const node of nodes) {
-      if (node.type !== 'layer') continue;
-      out.push(node.id);
-      walk(node.children || []);
-    }
-  };
-  for (const group of groups) if (group.type === 'comp') walk(group.children || []);
+  for (const group of groups) {
+    if (group.type !== 'comp') continue;
+    for (const row of group.children || []) if (row.type === 'layer') out.push(row.id);
+  }
   return out;
 }
 
 /**
  * Where a drag ends up.
  *
- * Expressed over the flat order rather than the tree, because the flat order is
- * what After Effects is given and the only thing a reorder can actually change.
- * A node's subtree travels with it: the tree nests by parent, so leaving a
- * child behind would print an order the tree could never redraw.
+ * Expressed over the flat order, because the flat order is the whole of what
+ * After Effects is given and the only thing a reorder can change. One row
+ * moves, and nothing travels with it, because nothing is nested under it.
  *
  * @param before  drop above the target rather than below it
  * @returns the new flat order, or null when the move would change nothing or
- *          cannot be made - a row dropped inside its own subtree, for instance
+ *          cannot be made
  */
 export function moveInOutline(groups, sourceId, targetId, { before = true } = {}) {
   const order = outlineOrder(groups);
   if (sourceId === targetId) return null;
   if (!order.includes(sourceId) || !order.includes(targetId)) return null;
 
-  const subtree = subtreeIds(groups, sourceId);
-  // Dropping a row into its own descendants has no meaning: the block being
-  // moved and the place it is going are the same rows.
-  if (subtree.includes(targetId)) return null;
-
-  const moving = order.filter((id) => subtree.includes(id));
-  const rest = order.filter((id) => !subtree.includes(id));
+  const rest = order.filter((id) => id !== sourceId);
   const at = rest.indexOf(targetId);
   if (at === -1) return null;
 
-  const next = [...rest.slice(0, before ? at : at + 1), ...moving,
+  const next = [...rest.slice(0, before ? at : at + 1), sourceId,
                 ...rest.slice(before ? at : at + 1)];
   return next.join(',') === order.join(',') ? null : next;
-}
-
-export function subtreeIds(groups, rootId) {
-  const found = [];
-  const collect = (node) => {
-    if (node.type !== 'layer') return;
-    found.push(node.id);
-    for (const child of node.children || []) collect(child);
-  };
-  const find = (nodes) => {
-    for (const node of nodes) {
-      if (node.id === rootId) { collect(node); return true; }
-      if (find(node.children || [])) return true;
-    }
-    return false;
-  };
-  find(groups);
-  return found;
 }

@@ -99,18 +99,25 @@
 
 /* -------------------------------------------------------- indent and twisty */
 
-/* One element carries the whole indent, and draws the guide line at its right
-   edge - the thing that makes a deep tree readable at 20px a row. */
+/* One element carries the whole indent, and draws a guide line for EVERY level
+   it spans rather than only its own - one line per ancestor, as in the
+   reference. A single line at the content edge reads as a box instead of a
+   tree, which is the difference between the two the moment a row sits at
+   depth 2. */
 .ntl-out-indent {
   flex: 0 0 auto;
   width: var(--row-indent);
   align-self: stretch;
-  border-right: 1px solid rgba(255, 255, 255, 0.07);
-  box-sizing: content-box;
+  background-image: repeating-linear-gradient(
+    to right,
+    rgba(255, 255, 255, 0.08) 0 1px,
+    transparent 1px 13px
+  );
+  background-position-x: 7px;
 }
 .ntl-out-row.is-comp .ntl-out-indent,
 .ntl-out-row.is-unwired .ntl-out-indent,
-.ntl-out-row.is-logic .ntl-out-indent { border-right: none; }
+.ntl-out-row.is-logic .ntl-out-indent { background-image: none; }
 
 .ntl-out-twist {
   flex: 0 0 auto;
@@ -169,6 +176,18 @@
 }
 
 /* ---------------------------------------------------------------- toggles */
+
+/* Sits in the same column the layer rows put their swatch and eye in, so the
+   right edge reads as one column rather than three. */
+.ntl-out-check {
+  flex: 0 0 auto;
+  width: 11px;
+  height: 11px;
+  margin: 0 8px 0 0;
+  accent-color: var(--ntl-edge, #5b9dd9);
+  cursor: pointer;
+}
+.ntl-out-check:disabled { cursor: default; opacity: 0.5; }
 
 .ntl-out-swatch {
   flex: 0 0 auto;
