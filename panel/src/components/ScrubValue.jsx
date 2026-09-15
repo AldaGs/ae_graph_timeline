@@ -1,9 +1,11 @@
-// One After Effects numeric field.
+// One numeric field, drawn as Blender draws one and behaving as After Effects
+// behaves.
 //
-// Drag across it and the value follows the pointer; click it and you type. Both,
-// from the same element, which is the whole trick: AE users reach for the drag
-// first and the keyboard second, and a field that only accepts typing makes
-// every small adjustment a select-all-and-retype.
+// Drag across it and the value follows the pointer; click it and you type; hover
+// it and a step arrow appears at each end. All from the same element, which is
+// the whole trick: the drag is what these applications are actually used with,
+// and a field that only accepts typing makes every small adjustment a
+// select-all-and-retype.
 //
 // The arithmetic - how far a pixel moves a value, what Shift and Ctrl do, where
 // it clamps, how it prints - is in src/scrub.js and tested there. This file is
@@ -20,6 +22,7 @@
 // in After Effects (S5: the stack holds 99) no matter how far it is dragged.
 
 import { useEffect, useRef, useState } from 'react';
+import { ChevronLeft, ChevronRight } from 'lucide-react';
 
 import { applyScrub, formatScrub, parseScrub, stepScrub } from '../../../src/scrub.js';
 
@@ -31,7 +34,6 @@ const DRAG_THRESHOLD = 3;
 export default function ScrubValue({
   value,
   spec,
-  axis = null,
   label,
   disabled = false,
   onScrubStart,
@@ -75,6 +77,15 @@ export default function ScrubValue({
     if (!editing) return value;
     const parsed = parseScrub(draft);
     return parsed === null ? value : parsed;
+  };
+
+  const step = (direction, modifiers = {}) => {
+    const from = effectiveValue();
+    const next = stepScrub({ value: from, direction, spec, ...modifiers });
+    if (next === from) return;
+    // The draft follows, so the number on screen is the number that was sent.
+    if (editing) setDraft(formatScrub(next, spec));
+    onCommit?.(next);
   };
 
   const onPointerDown = (event) => {
@@ -130,18 +141,31 @@ export default function ScrubValue({
     // The keyboard's version of a scrub, and the reason a scrubber still has to
     // be a real focusable field: arrowing a value is how it is done precisely.
     event.preventDefault();
-    const from = effectiveValue();
-    const next = stepScrub({ value: from, direction: event.key === 'ArrowUp' ? 1 : -1, spec,
-      shift: event.shiftKey, fine: event.ctrlKey || event.metaKey });
-    if (next === from) return;
-    // The draft follows, so the number on screen is the number that was sent.
-    if (editing) setDraft(formatScrub(next, spec));
-    onCommit?.(next);
+    step(event.key === 'ArrowUp' ? 1 : -1,
+      { shift: event.shiftKey, fine: event.ctrlKey || event.metaKey });
   };
+
+  // Blender's step arrows, which appear on hover at each end of the field. They
+  // are the discoverable half of the affordance: a user who has not worked out
+  // that the field can be dragged can still click one.
+  const arrow = (direction, Icon, name) => (
+    <button
+      className={`ntl-scrub-step is-${name}`}
+      aria-label={`${label} ${name}`}
+      tabIndex={-1}
+      disabled={disabled}
+      // Pointer events are stopped, not just the click: the field's own
+      // pointerdown would otherwise start a drag from under the arrow.
+      onPointerDown={(e) => e.stopPropagation()}
+      onClick={(e) => { e.stopPropagation(); step(direction, { shift: e.shiftKey }); }}
+    >
+      <Icon size={11} strokeWidth={2.25} aria-hidden="true" />
+    </button>
+  );
 
   return (
     <span className={`ntl-scrub${disabled ? ' is-disabled' : ''}${editing ? ' is-editing' : ''}`}>
-      {axis && <span className="ntl-scrub-axis" aria-hidden="true">{axis}</span>}
+      {!editing && !disabled && arrow(-1, ChevronLeft, 'down')}
       <input
         ref={inputRef}
         className="ntl-scrub-input"
@@ -160,7 +184,10 @@ export default function ScrubValue({
         onKeyDown={onKeyDown}
         onDoubleClick={() => { if (!disabled) setEditing(true); }}
       />
+      {/* The unit sits INSIDE the field, right after the number, the way Blender
+          writes "0 m" and "1.000" - not in a column of its own outside it. */}
       {spec?.unit && !editing && <span className="ntl-scrub-unit" aria-hidden="true">{spec.unit}</span>}
+      {!editing && !disabled && arrow(1, ChevronRight, 'up')}
     </span>
   );
 }

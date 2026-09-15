@@ -28,69 +28,129 @@ html, body, #root {
 
 .ntl-app { display: flex; flex-direction: column; height: 100%; }
 .ntl-canvas { position: relative; }
-.ntl-inspector { position: absolute; top: 8px; left: 8px; width: 225px; max-height: calc(100% - 16px); overflow: auto; padding: 12px; background: var(--ntl-panel); border: 1px solid var(--ntl-line); border-radius: 5px; z-index: 900; }
-.ntl-inspector fieldset { border: 0; padding: 0; min-width: 0; }
-.ntl-inspector label { display: flex; flex-direction: column; gap: 3px; margin: 9px 0; }
-/* Every inspector field EXCEPT a scrubber. A scrubber draws its own box, and
-   this rule out-specifies `.ntl-scrub-input` (class + type beats class), so
-   without the exclusion each number ended up in a second nested border. */
-.ntl-inspector input:not(.ntl-scrub-input), .ntl-inspector select { width: 100%; min-width: 0; padding: 5px; background: var(--ntl-bg); color: var(--ntl-text); border: 1px solid var(--ntl-line); border-radius: 3px; }
-.ntl-inspector details { margin: 9px 0; }
-.ntl-inspector-note { color: var(--ntl-dim); margin: 9px 0 0; }
+/* ------------------------------------------------------------- the inspector
 
-/* An inline effect, as its own block - the panel's Effect Controls. */
-.ntl-fx { margin: 12px 0 0; padding-top: 8px; border-top: 1px solid var(--ntl-line); }
-.ntl-fx-name { display: block; margin-bottom: 4px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+   Blender's properties editor, because the outliner beside it already is one:
+   collapsible sections under a chevron, one component per ROW, a right-aligned
+   label column, the value in a flat inset field with its unit inside it, and a
+   narrow state column on the right. */
+
+.ntl-inspector {
+  position: absolute; top: 8px; left: 8px; width: 244px;
+  max-height: calc(100% - 16px); overflow: auto;
+  background: var(--ntl-panel); border: 1px solid var(--ntl-line);
+  border-radius: 5px; z-index: 900;
+}
+
+.ntl-inspector fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
+
+/* Blender puts the object's icon and name above the panels, in its own strip. */
+.ntl-inspector-head {
+  display: flex; align-items: center; gap: 6px;
+  padding: 6px 8px; border-bottom: 1px solid var(--ntl-line);
+  background: var(--ntl-bg);
+}
+.ntl-inspector-kind {
+  flex: 0 0 auto; color: var(--ntl-dim); font-size: 10px;
+  text-transform: uppercase; letter-spacing: 0.05em;
+}
+.ntl-inspector-head input {
+  flex: 1 1 auto; min-width: 0; padding: 3px 6px;
+  background: #2a2a2a; color: var(--ntl-text);
+  border: 1px solid transparent; border-radius: 3px; font: inherit;
+}
+.ntl-inspector-head input:hover { background: #333; }
+.ntl-inspector-head input:focus { border-color: var(--ntl-edge); background: var(--ntl-bg); }
+
+.ntl-inspector > p { margin: 10px 8px; color: var(--ntl-dim); }
+.ntl-inspector > strong { display: block; padding: 7px 8px; }
+.ntl-inspector-note { margin: 4px 0 0; color: var(--ntl-dim); }
+
+/* ---------------------------------------------------------------- a section */
+
+.ntl-section { border-bottom: 1px solid var(--ntl-line); }
+.ntl-section:last-of-type { border-bottom: none; }
+
+.ntl-section-head {
+  display: flex; align-items: center; gap: 4px; width: 100%;
+  padding: 5px 8px; background: rgba(255, 255, 255, 0.03);
+  border: none; border-radius: 0; color: var(--ntl-text);
+  font: inherit; font-weight: 600; text-align: left; cursor: pointer;
+}
+.ntl-section-head:hover { background: rgba(255, 255, 255, 0.07); }
+.ntl-section-body { padding: 5px 8px 8px; }
+
+/* ------------------------------------------------------- an inspector row
+
+   Three columns for every row in the panel, so the fields line up down the
+   whole inspector whatever is in them - which is the thing that makes Blender's
+   read as a table rather than as a stack of forms.
+
+   Named `irow`, not `row`: the canvas nodes already own `.ntl-row`, and a grid
+   imposed on those would have broken every node on screen. */
+
+.ntl-irow {
+  display: grid;
+  grid-template-columns: 72px 1fr 14px;
+  align-items: center;
+  gap: 5px;
+  margin: 2px 0;
+}
+
+.ntl-irow-label {
+  /* Right-aligned against the field, as Blender aligns it. Only the first row
+     of a vector carries the property's name; the rest carry just their axis.
+     The name gives way first when the column is too narrow, because an axis
+     letter with no name is still readable and a name with no axis is not. */
+  display: flex;
+  align-items: baseline;
+  justify-content: flex-end;
+  gap: 4px;
+  min-width: 0;
+  color: var(--ntl-dim);
+  white-space: nowrap;
+}
+.ntl-irow-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.ntl-irow-axis { flex: 0 0 auto; color: var(--ntl-text); }
+
+.ntl-irow-state {
+  display: inline-flex; align-items: center; justify-content: center;
+  color: var(--ntl-edge);
+}
+
+.ntl-irow select,
+.ntl-irow input {
+  width: 100%; min-width: 0; padding: 3px 6px;
+  background: #2a2a2a; color: var(--ntl-text);
+  border: 1px solid transparent; border-radius: 3px; font: inherit;
+}
+.ntl-irow select:hover, .ntl-irow input:not([readonly]):hover { background: #333; }
+.ntl-irow input[readonly] { color: var(--ntl-dim); }
 
 /* ------------------------------------------------------- scrubbable values
 
-   After Effects' numeric fields: a number you drag, underlined to say so, that
-   becomes a text box when you click it. The cursor is the whole affordance -
-   `ew-resize` over a number is what tells an AE user it can be scrubbed, and
-   there is nothing else on the row that could say it. */
-
-.ntl-prop { margin: 9px 0; }
-
-.ntl-prop-name {
-  display: block;
-  margin-bottom: 3px;
-  color: var(--ntl-dim);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-/* Components sit side by side and share the width evenly, so position reads as
-   two numbers rather than as a sentence. Wrapping is allowed: four colour
-   channels in a 225px panel do not fit on one line, and squeezing them to
-   three characters each would be worse than a second row. */
-.ntl-prop-fields { display: flex; flex-wrap: wrap; gap: 4px; }
+   A flat inset field: drag it and the value follows the pointer, click it and
+   you type. The `ew-resize` cursor and the step arrows that appear on hover are
+   the whole affordance - there is nothing else on the row that could say it. */
 
 .ntl-scrub {
-  display: inline-flex;
-  align-items: baseline;
-  /* Not stretched. A lone opacity field spanning the panel reads as a text box
-     again, which is the one thing these are not; AE's are narrow and left. */
-  flex: 0 1 68px;
-  min-width: 52px;
-  gap: 2px;
-  padding: 3px 5px;
-  background: var(--ntl-bg);
-  border: 1px solid var(--ntl-line);
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 3px;
+  min-width: 0;
+  padding: 3px 6px;
+  background: #2a2a2a;
+  border: 1px solid transparent;
   border-radius: 3px;
   cursor: ew-resize;
 }
 
-.ntl-scrub:hover { border-color: #4a4a4a; }
-.ntl-scrub.is-editing { border-color: var(--ntl-edge); cursor: text; }
-.ntl-scrub.is-disabled { cursor: default; opacity: 0.55; }
+.ntl-scrub:hover { background: #333; }
+.ntl-scrub.is-editing { background: var(--ntl-bg); border-color: var(--ntl-edge); cursor: text; }
+.ntl-scrub.is-disabled { cursor: default; opacity: 0.6; }
 
-.ntl-scrub-axis,
-.ntl-scrub-unit { color: var(--ntl-dim); flex: 0 0 auto; font-size: 10px; }
-
-/* The number itself. Borderless inside its own box, and dotted-underlined the
-   way AE underlines a scrubbable value - dropped while editing, because then it
-   is an ordinary text field and should look like one. */
 .ntl-scrub-input {
   flex: 1 1 auto;
   width: 100%;
@@ -98,30 +158,47 @@ html, body, #root {
   padding: 0;
   background: transparent;
   border: none;
-  color: var(--ntl-edge);
+  color: var(--ntl-text);
   font: inherit;
   text-align: right;
   cursor: inherit;
-  border-bottom: 1px dotted rgba(91, 157, 217, 0.55);
 }
+.ntl-scrub.is-editing .ntl-scrub-input { text-align: left; user-select: text; }
 
-.ntl-scrub.is-editing .ntl-scrub-input {
-  border-bottom-color: transparent;
-  color: var(--ntl-text);
-  text-align: left;
-  user-select: text;
-}
-
-.ntl-scrub.is-disabled .ntl-scrub-input {
-  color: var(--ntl-dim);
-  border-bottom-style: solid;
-  border-bottom-color: transparent;
-}
+/* The unit sits inside the field, right after the number - "0 px", "1.000" -
+   dimmed, because it is a fact about the number and not part of it. */
+.ntl-scrub-unit { flex: 0 0 auto; color: var(--ntl-dim); }
 
 /* A drag must not select the text it is dragging over, and must not turn into
    the browser's own scroll gesture. */
 .ntl-scrub-input[readonly] { user-select: none; touch-action: none; }
-.ntl-inspector details button { margin: 4px 3px 4px 0; }
+
+/* Blender's step arrows: invisible until the field is hovered, and overlaid
+   rather than laid out, so showing them never reflows the number. */
+.ntl-scrub-step {
+  position: absolute;
+  top: 0; bottom: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 14px; padding: 0;
+  background: transparent; border: none; border-radius: 2px;
+  color: var(--ntl-dim); cursor: default; opacity: 0;
+}
+.ntl-scrub-step.is-down { left: 1px; }
+.ntl-scrub-step.is-up { right: 1px; }
+.ntl-scrub:hover .ntl-scrub-step { opacity: 1; }
+.ntl-scrub-step:hover { background: rgba(255, 255, 255, 0.12); color: var(--ntl-text); }
+
+/* ------------------------------------------------------------ effect picker */
+
+.ntl-effect-picks { display: flex; flex-wrap: wrap; gap: 4px; margin: 4px 0; }
+#ntl-inspector-effects input { width: 100%; padding: 3px 6px; margin: 2px 0;
+  background: #2a2a2a; color: var(--ntl-text); border: 1px solid transparent;
+  border-radius: 3px; font: inherit; }
+
+.ntl-inspector-foot { padding: 8px; border-top: 1px solid var(--ntl-line); }
+.ntl-inspector-foot [role='alert'] { margin-top: 6px; }
+.ntl-inspector-foot p { margin: 0 0 6px; color: var(--ntl-dim); }
+
 button:focus-visible, input:focus-visible, select:focus-visible, summary:focus-visible { outline: 2px solid var(--ntl-edge); outline-offset: 2px; }
 .ntl-outliner { resize: horizontal; min-width: 180px; max-width: 45%; }
 
