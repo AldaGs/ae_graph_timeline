@@ -39,16 +39,30 @@ test('visible graph commands redraw and touch the loop once', () => {
   assert.equal(s.graph.nodes[layer.id].enabled, false);
 });
 
-test('footage import creates a source-backed node through the command boundary', () => {
+test('dropped Project footage creates source-backed nodes through one command', () => {
   const s = setup();
-  const node = s.commands.addFootage('D:/shot/plate.mov', 'plate.mov', { x: 12, y: 34 });
+  const [node] = s.commands.addProjectItems([
+    { itemId: 27, path: 'D:/shot/plate.mov', name: 'plate.mov' },
+  ], { x: 12, y: 34 });
   assert.equal(node.kind, 'footage');
   assert.deepEqual(node.source, {
-    kind: 'footage', itemId: null, path: 'D:/shot/plate.mov',
+    kind: 'footage', itemId: 27, path: 'D:/shot/plate.mov',
     importAs: 'footage', missing: false,
   });
   assert.deepEqual(node.ui, { x: 12, y: 34 });
   assert.equal(s.touches.length, 1);
+});
+
+test('a multi-item Project drop is one command and fans nodes from the cursor', () => {
+  const s = setup();
+  const nodes = s.commands.addProjectItems([
+    { itemId: 27, name: 'plate.mov' },
+    { itemId: 28, name: 'matte.png' },
+  ], { x: 100, y: 200 });
+  assert.equal(nodes.length, 2);
+  assert.deepEqual(nodes.map((node) => node.ui), [{ x: 100, y: 200 }, { x: 128, y: 228 }]);
+  assert.equal(s.touches.length, 1);
+  assert.equal(s.touches[0], 'Add 2 project items');
 });
 
 test('expression edits touch without rebuilding the controlled node', () => {

@@ -78,7 +78,7 @@ export function useHostMonitoring({ host, startup, loopRef, activeCompRef, loopE
           || loopState?.inFlight || loopState?.gestureDepth > 0) return;
       checking = true;
       try {
-        const reply = await host.evalScript(activeCompCall());
+        const reply = await host.evalScript(activeCompCall(activeCompRef.current?.compId));
         // Same rule as the drift poll: a reply the host never ran means stop
         // calling, not "the composition is gone". The bridge has already
         // suspended itself; the only thing left is to not act on the reply.

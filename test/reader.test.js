@@ -21,7 +21,7 @@ import {
   clampCompFrame, clampFrame, parseTransportState, setCurrentFrameCall, transportStateCall,
   TransportError,
 } from '../src/transport.js';
-import { selectFootageCall, parseFootageSelection } from '../src/footage.js';
+import { droppedProjectItemsCall, parseDroppedProjectItems } from '../src/footage.js';
 
 // ---- helpers ---------------------------------------------------------------
 
@@ -121,13 +121,17 @@ test('the new-comp call opens the native AE dialog', () => {
   assert.equal(newCompDialogCall(), 'NTL_ShowNewCompDialog()');
 });
 
-test('the footage picker distinguishes cancel from a selected native path', () => {
+test('a Project-panel drop resolves existing footage and restores the bound comp', () => {
   const ae = makeAE();
-  assert.deepEqual(parseFootageSelection(ae.eval(selectFootageCall())), { selected: false });
-  ae.app.nextOpenFile = 'D:/shot/plate.mov';
-  assert.deepEqual(parseFootageSelection(ae.eval(selectFootageCall())), {
-    selected: true, path: 'D:/shot/plate.mov', name: 'plate.mov',
+  const item = ae.project.importFile(new ae.ctx.ImportOptions(new ae.ctx.File('D:/shot/plate.mov')));
+  ae.project.selection = [item];
+  ae.project.activeItem = item;
+  assert.deepEqual(parseDroppedProjectItems(ae.eval(droppedProjectItemsCall(ae.comp.id))), {
+    items: [{ kind: 'footage', itemId: item.id, path: 'D:/shot/plate.mov',
+      name: 'plate.mov', missing: false }],
+    rejected: 0,
   });
+  assert.equal(ae.project.activeItem, ae.comp);
 });
 
 test('the native new-comp dialog result is validated, including cancel', () => {
@@ -141,10 +145,17 @@ test('the native new-comp dialog result is validated, including cancel', () => {
 
 test('the active-comp identity check validates present and absent comps', () => {
   assert.equal(activeCompCall(), 'NTL_ActiveComp()');
+  assert.equal(activeCompCall(9), 'NTL_ActiveComp(9)');
   assert.equal(parseActiveComp('{"ok":true,"active":false}').active, false);
   assert.equal(parseActiveComp('{"ok":true,"active":true,"compName":"Shot","compId":9}').compId, 9);
   assert.throws(() => parseActiveComp('{"ok":true,"active":true}'),
     (e) => e instanceof ReadError && /did not identify/.test(e.message));
+});
+
+test('Project-panel selection does not look like a closed composition', () => {
+  assert.equal(classifyActiveComp({ compId: 9 }, {
+    active: false, retainedComp: true, projectItemActive: true,
+  }).status, 'away');
 });
 
 test('active comp identity catches deletion and switching to a duplicate', () => {
@@ -371,6 +382,17 @@ test('the active-comp monitor safely rejects imported footage', () => {
 
   const active = parseActiveComp(ae.eval(activeCompCall()));
   assert.equal(active.active, false);
+});
+
+test('the bound comp remains readable while Project footage is active', () => {
+  const ae = makeAE({ strictCompChecks: true });
+  const footage = ae.project.importFile(
+    new ae.ctx.ImportOptions(new ae.ctx.File('D:/shot/frame_0001.png')),
+  );
+  ae.project.activeItem = footage;
+
+  const state = parseCompState(ae.eval(readCompCall({ compId: ae.comp.id })));
+  assert.equal(state.compId, ae.comp.id);
 });
 
 test('Save As is classified as a move, so the sidecar can be re-pointed', () => {

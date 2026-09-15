@@ -354,7 +354,10 @@ function NTL_ReadComp(compName, includeEffects, compId) {
         }
         if (compId !== undefined && compId !== null) {
             var active = app.project.activeItem;
-            if (!ntlrIsCompItem(active) || active.id !== compId) {
+            // A Project-panel item becomes active while it is selected or
+            // dragged. Reading the still-existing bound comp is safe; only a
+            // different active composition is an identity change.
+            if (ntlrIsCompItem(active) && active.id !== compId) {
                 return ntlrVal({ ok: false, message: 'active composition changed',
                                  expectedCompId: compId,
                                  actualCompId: ntlrIsCompItem(active) ? active.id : null });
@@ -369,14 +372,36 @@ function NTL_ReadComp(compName, includeEffects, compId) {
     }
 }
 
-// Native single-file picker. It chooses a path but imports nothing; the graph
-// mutation that follows is what authorizes the guarded patch to import it.
-function NTL_SelectFootageFile() {
+// A native Project-panel drag carries no stable browser payload in CEP. The
+// Project selection is the authoritative payload: resolve it only when the
+// user drops on the graph, then restore the graph's bound comp so the ordinary
+// guarded patch can add layers from these existing project items.
+function NTL_DroppedProjectItems(compId) {
     try {
-        var file = File.openDialog('Import Footage', undefined, false);
-        if (!file) return ntlrVal({ ok: true, selected: false });
-        return ntlrVal({ ok: true, selected: true, path: file.fsName,
-                         name: file.name || file.displayName || file.fsName });
+        var comp = ntlrFindComp(null, compId);
+        if (!comp) return ntlrVal({ ok: false, message: 'target composition no longer exists' });
+        var selected = app.project.selection || [];
+        var items = [];
+        var rejected = 0;
+        for (var i = 0; i < selected.length; i++) {
+            var item = selected[i];
+            var isFootage = false;
+            try {
+                isFootage = !ntlrIsCompItem(item) && item.mainSource !== undefined;
+            } catch (eType) { isFootage = false; }
+            if (!isFootage) {
+                rejected++;
+                continue;
+            }
+            var path = null;
+            try {
+                if (item.mainSource && item.mainSource.file) path = item.mainSource.file.fsName;
+            } catch (ePath) { /* generated or missing footage may have no file */ }
+            items.push({ itemId: item.id, name: item.name, path: path,
+                         missing: item.footageMissing ? true : false });
+        }
+        if (items.length) comp.openInViewer();
+        return ntlrVal({ ok: true, items: items, rejected: rejected });
     } catch (e) {
         return ntlrVal({ ok: false, message: String(e && (e.message || e)), line: e && e.line });
     }
@@ -390,7 +415,7 @@ function NTL_SelectFootageFile() {
 // and nothing else in the panel would ever notice: the path is read once at
 // startup. Carried here rather than in a second call, since this one already
 // runs once a second and the whole point of it is cheapness.
-function NTL_ActiveComp() {
+function NTL_ActiveComp(expectedCompId) {
     try {
         var path = null;
         try {
@@ -398,7 +423,12 @@ function NTL_ActiveComp() {
         } catch (ePath) { /* an unsaved project has no file; not an error */ }
         var active = app.project && app.project.activeItem;
         if (!ntlrIsCompItem(active)) {
-            return ntlrVal({ ok: true, active: false, projectPath: path });
+            var retained = false;
+            if (expectedCompId !== undefined && expectedCompId !== null) {
+                retained = ntlrFindComp(null, expectedCompId) !== null;
+            }
+            return ntlrVal({ ok: true, active: false, retainedComp: retained,
+                             projectItemActive: active ? true : false, projectPath: path });
         }
         return ntlrVal({ ok: true, active: true, compName: active.name,
                          compId: active.id, projectPath: path });

@@ -289,10 +289,11 @@ export class FakeComp {
     return l;
   }
   byTag(tag) { return this._layers.find((l) => l.comment.trim() === `ntl:${tag}`); }
+  openInViewer() { this.project.activeItem = this; return true; }
 }
 
 export function makeAE({ strictCompChecks = false } = {}) {
-  const project = { revision: 1, _items: [] };
+  const project = { revision: 1, _items: [], selection: [] };
   const undo = { groups: [], open: 0, maxOpen: 0 };
 
   const app = {

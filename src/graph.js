@@ -197,9 +197,9 @@ export function addNode(graph, node) {
       name: e.name || e.matchName,
       params: { ...(e.params || {}) },
     })),
-    // Source-backed layers keep AE's project item id as a fast live handle and
-    // the file path as a recovery hint. AE remains responsible for footage
-    // interpretation and relinking.
+    // Source-backed layers keep AE's project item id as the live handle and the
+    // file path as diagnostics. Paths never recreate or deduplicate footage;
+    // AE remains responsible for import interpretation and relinking.
     source: node.source ? {
       kind: node.source.kind || 'footage',
       itemId: Number.isFinite(node.source.itemId) ? node.source.itemId : null,

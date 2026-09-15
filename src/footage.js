@@ -1,27 +1,33 @@
 import { ReadError } from './reader.js';
 
-const SELECT_FN = 'NTL_SelectFootageFile';
+const DROPPED_ITEMS_FN = 'NTL_DroppedProjectItems';
 
-export const selectFootageCall = () => `${SELECT_FN}()`;
+export const droppedProjectItemsCall = (compId) => `${DROPPED_ITEMS_FN}(${Number(compId)})`;
 
-export function parseFootageSelection(jsonText) {
+export function parseDroppedProjectItems(jsonText) {
   let payload;
   try {
     payload = JSON.parse(jsonText);
   } catch {
-    throw new ReadError(`footage picker did not return JSON: "${String(jsonText).slice(0, 120)}"`);
+    throw new ReadError(`project-item drop did not return JSON: "${String(jsonText).slice(0, 120)}"`);
   }
-  if (payload?.ok !== true || typeof payload.selected !== 'boolean') {
-    throw new ReadError(payload?.message || 'footage picker returned an invalid result', payload);
+  if (payload?.ok !== true || !Array.isArray(payload.items)) {
+    throw new ReadError(payload?.message || 'project-item drop returned an invalid result', payload);
   }
-  if (!payload.selected) return { selected: false };
-  if (typeof payload.path !== 'string' || !payload.path.length) {
-    throw new ReadError('footage picker returned no path', payload);
-  }
+  const items = payload.items.map((item) => {
+    if (!Number.isFinite(item?.itemId) || typeof item.name !== 'string' || !item.name.length) {
+      throw new ReadError('project-item drop did not identify its footage', payload);
+    }
+    return {
+      kind: 'footage',
+      itemId: item.itemId,
+      name: item.name,
+      path: typeof item.path === 'string' && item.path.length ? item.path : null,
+      missing: item.missing === true,
+    };
+  });
   return {
-    selected: true,
-    path: payload.path,
-    name: typeof payload.name === 'string' && payload.name.length
-      ? payload.name : payload.path.split(/[\\/]/).pop(),
+    items,
+    rejected: Number.isFinite(payload.rejected) ? payload.rejected : 0,
   };
 }

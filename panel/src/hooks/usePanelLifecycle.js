@@ -20,7 +20,7 @@ import {
   readCompCall, parseCompState, newCompDialogCall, parseNewCompDialog,
   graphFilePathFor,
 } from '../../../src/reader.js';
-import { selectFootageCall, parseFootageSelection } from '../../../src/footage.js';
+import { droppedProjectItemsCall, parseDroppedProjectItems } from '../../../src/footage.js';
 
 // Browser-only fixture. A live AE comp is never seeded automatically.
 //
@@ -433,18 +433,26 @@ export function usePanelLifecycle() {
     setSelected(node.id);
   }, [commands]);
 
-  const importFootage = useCallback(async (position) => {
+  const addDroppedProjectItems = useCallback(async (position) => {
     if (!host.connected || !canEdit) return;
-    host.beginModal();
     try {
-      const picked = parseFootageSelection(await host.evalScript(selectFootageCall()));
-      if (!picked.selected) return;
-      const node = commands.addFootage(picked.path, picked.name, position?.position || position);
-      setSelected(node.id);
+      const compId = activeCompRef.current?.compId;
+      if (!compId) throw new Error('No composition is bound to this graph');
+      const dropped = parseDroppedProjectItems(
+        await host.evalScript(droppedProjectItemsCall(compId)),
+      );
+      if (!dropped.items.length) {
+        throw new Error(dropped.rejected
+          ? 'Only footage items can be dropped from the AE Project panel'
+          : 'Select footage in the AE Project panel, then drop it on the graph');
+      }
+      const nodes = commands.addProjectItems(dropped.items, position?.position || position);
+      setSelected(nodes[0].id);
+      if (dropped.rejected) {
+        setMessage(`${dropped.rejected} non-footage project item${dropped.rejected === 1 ? '' : 's'} ignored`);
+      }
     } catch (e) {
       setMessage(e.message);
-    } finally {
-      host.endModal();
     }
   }, [host, canEdit, commands]);
 
@@ -564,5 +572,5 @@ export function usePanelLifecycle() {
     return locked;
   }, [version, baselineRef]);
 
-  return { textLocked, showEffectControls, graph, version, selected, setSelected, message, setMessage, contextMenu, host, link, startup, drift, storageRef, saveStatus, saveGraph, canEdit, commands, handlePaneContextMenu, closeContextMenu, addEffectNode, addExpressionNode, importFootage, ping, onGestureStart, onGestureEnd, addLayer, rename, remove, addFx, setBlend, counts, startEmptyGraph, createNewComp, reviewSaved, keepGraph, useAeChanges, playback };
+  return { textLocked, showEffectControls, graph, version, selected, setSelected, message, setMessage, contextMenu, host, link, startup, drift, storageRef, saveStatus, saveGraph, canEdit, commands, handlePaneContextMenu, closeContextMenu, addEffectNode, addExpressionNode, addDroppedProjectItems, ping, onGestureStart, onGestureEnd, addLayer, rename, remove, addFx, setBlend, counts, startEmptyGraph, createNewComp, reviewSaved, keepGraph, useAeChanges, playback };
 }

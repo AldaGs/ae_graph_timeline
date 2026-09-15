@@ -48,20 +48,28 @@ export function createGraphCommands({ graph, getLoop, redraw, setSelected = () =
       return commit(`Add ${node.name}`, node);
     },
 
-    addFootage(path, name, position) {
-      if (typeof path !== 'string' || !path.length) throw new Error('Footage needs a file path');
-      const id = nextNodeId(graph);
+    addProjectItems(items, position) {
+      if (!Array.isArray(items) || !items.length) throw new Error('Drop footage from the AE Project panel');
       const count = Object.keys(graph.nodes).length;
-      const node = addNode(graph, {
-        id, kind: 'footage', name: name || `Footage ${id}`,
-        props: defaultLayerProps('footage', getCompSize() || {}),
-        source: { kind: 'footage', itemId: null, path, importAs: 'footage' },
-        ui: {
-          x: position?.x ?? (40 + (count % 4) * 300),
-          y: position?.y ?? (40 + Math.floor(count / 4) * 260),
-        },
+      const nodes = items.map((item, index) => {
+        if (!Number.isFinite(item?.itemId)) throw new Error('Dropped footage has no AE project-item id');
+        const id = nextNodeId(graph);
+        return addNode(graph, {
+          id, kind: 'footage', name: item.name || `Footage ${id}`,
+          props: defaultLayerProps('footage', getCompSize() || {}),
+          source: {
+            kind: 'footage', itemId: item.itemId,
+            path: typeof item.path === 'string' ? item.path : null,
+            importAs: 'footage', missing: item.missing === true,
+          },
+          ui: {
+            x: (position?.x ?? (40 + (count % 4) * 300)) + index * 28,
+            y: (position?.y ?? (40 + Math.floor(count / 4) * 260)) + index * 28,
+          },
+        });
       });
-      return commit(`Import ${node.name}`, node);
+      const label = nodes.length === 1 ? `Add ${nodes[0].name}` : `Add ${nodes.length} project items`;
+      return commit(label, nodes);
     },
 
     addEffectNode(matchName, name, props = {}, position = { x: 40, y: 40 }) {

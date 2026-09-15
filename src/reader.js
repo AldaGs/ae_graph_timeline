@@ -39,7 +39,8 @@ export function readCompCall({ compName = null, compId = null, includeEffects = 
 }
 
 export const newCompDialogCall = () => `${NEW_COMP_DIALOG_FN}()`;
-export const activeCompCall = () => `${ACTIVE_COMP_FN}()`;
+export const activeCompCall = (expectedCompId = null) =>
+  expectedCompId === null ? `${ACTIVE_COMP_FN}()` : `${ACTIVE_COMP_FN}(${Number(expectedCompId)})`;
 
 export function parseActiveComp(jsonText) {
   let payload;
@@ -93,6 +94,9 @@ export function classifyProjectPath(expected, active) {
 
 export function classifyActiveComp(expected, active) {
   if (!expected) return { status: 'untracked' };
+  // Clicking or dragging an item in AE's Project panel makes that item active,
+  // but it does not close the composition Node Timeline is bound to.
+  if (!active?.active && active?.retainedComp === true) return { status: 'away', expected };
   if (!active?.active) return { status: 'missing', expected };
   if (active.compId !== expected.compId) return { status: 'changed', expected, active };
   return { status: 'same', expected, active };

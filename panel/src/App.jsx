@@ -21,7 +21,7 @@ export default function App() {
   const [outlinerVisible, setOutlinerVisible] = useState(true);
   const toggleInspector = useCallback(() => setInspectorVisible((visible) => !visible), []);
   const toggleOutliner = useCallback(() => setOutlinerVisible((visible) => !visible), []);
-  const { textLocked, showEffectControls, graph, version, selected, setSelected, message, setMessage, contextMenu, host, link, startup, drift, storageRef, saveStatus, saveGraph, canEdit, commands, handlePaneContextMenu, closeContextMenu, addEffectNode, addExpressionNode, importFootage, ping, onGestureStart, onGestureEnd, addLayer, rename, remove, addFx, setBlend, counts, startEmptyGraph, createNewComp, reviewSaved, keepGraph, useAeChanges, playback } = usePanelLifecycle();
+  const { textLocked, showEffectControls, graph, version, selected, setSelected, message, setMessage, contextMenu, host, link, startup, drift, storageRef, saveStatus, saveGraph, canEdit, commands, handlePaneContextMenu, closeContextMenu, addEffectNode, addExpressionNode, addDroppedProjectItems, ping, onGestureStart, onGestureEnd, addLayer, rename, remove, addFx, setBlend, counts, startEmptyGraph, createNewComp, reviewSaved, keepGraph, useAeChanges, playback } = usePanelLifecycle();
 
   return (
     <div className="ntl-app">
@@ -33,7 +33,7 @@ export default function App() {
           <button onClick={() => addLayer('null')} disabled={!canEdit}>+ Null</button>
           <button onClick={() => addLayer('text')} disabled={!canEdit}>+ Text</button>
           <button onClick={() => addLayer('shape')} disabled={!canEdit}>+ Shape</button>
-          <button onClick={() => importFootage()} disabled={!canEdit || !host.connected}>Import Footage…</button>
+          <span className="ntl-project-drop" title="Import media in After Effects, then drag it from the Project panel onto the graph">Drop Project footage onto graph</span>
           <button onClick={rename} disabled={!canEdit || !selected}>Rename</button>
           <button onClick={remove} disabled={!canEdit || !selected}>Delete</button>
           <button onClick={addFx} disabled={!canEdit || !selected}>+ Effect</button>
@@ -65,6 +65,7 @@ export default function App() {
           onPaneContextMenu={handlePaneContextMenu}
           onGestureStart={onGestureStart}
           onGestureEnd={onGestureEnd}
+          onProjectItemDrop={addDroppedProjectItems}
         />
         {canEdit && contextMenu && (
           <div className="ntl-context-menu" style={{ top: contextMenu.y, left: contextMenu.x }}>
@@ -73,8 +74,6 @@ export default function App() {
             <button onClick={() => { addLayer('null', contextMenu); closeContextMenu(); }}>Null</button>
             <button onClick={() => { addLayer('text', contextMenu); closeContextMenu(); }}>Text</button>
             <button onClick={() => { addLayer('shape', contextMenu); closeContextMenu(); }}>Shape</button>
-            <button onClick={() => { void importFootage(contextMenu); closeContextMenu(); }}>Import Footage…</button>
-            
             <div className="ntl-menu-group">Effects</div>
             <button onClick={() => { addEffectNode('ADBE Gaussian Blur 2', 'Gaussian Blur', {'ADBE Gaussian Blur 2-0001': 10}, contextMenu); closeContextMenu(); }}>Gaussian Blur</button>
             <button onClick={() => { addEffectNode('ADBE Tint', 'Tint', {}, contextMenu); closeContextMenu(); }}>Tint</button>

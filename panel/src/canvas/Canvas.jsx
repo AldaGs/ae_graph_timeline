@@ -57,7 +57,7 @@ const wiresOf = (graph) => [
   ...toParentEdges(graph).map((e) => ({ ...e, type: 'default', style: PARENT_EDGE })),
 ];
 
-export default function Canvas({ graph, commands, version, selectedId = null, editable = true, onError, onSelect, onPaneContextMenu, onGestureStart, onGestureEnd }) {
+export default function Canvas({ graph, commands, version, selectedId = null, editable = true, onError, onSelect, onPaneContextMenu, onGestureStart, onGestureEnd, onProjectItemDrop }) {
   const flowRef = useRef(null);
   const cacheRef = useRef(createNodeCache());
   const callbacksRef = useRef(new Map());
@@ -145,6 +145,22 @@ export default function Canvas({ graph, commands, version, selectedId = null, ed
 
   const handlePaneClick = useCallback(() => onSelect?.(null), [onSelect]);
 
+  const handleDragOver = useCallback((event) => {
+    if (!editable || !onProjectItemDrop) return;
+    event.preventDefault();
+    if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
+  }, [editable, onProjectItemDrop]);
+
+  const handleDrop = useCallback((event) => {
+    if (!editable || !onProjectItemDrop) return;
+    event.preventDefault();
+    const position = flowRef.current?.screenToFlowPosition({
+      x: event.clientX,
+      y: event.clientY,
+    });
+    if (position) void onProjectItemDrop(position);
+  }, [editable, onProjectItemDrop]);
+
   return (
     <ReactFlowProvider>
       <ReactFlow
@@ -159,6 +175,8 @@ export default function Canvas({ graph, commands, version, selectedId = null, ed
         onConnect={editable ? handleConnect : undefined}
         onSelectionChange={handleSelectionChange}
         onPaneClick={handlePaneClick}
+        onDragOver={handleDragOver}
+        onDrop={handleDrop}
         onPaneContextMenu={editable ? (event) => onPaneContextMenu?.(event, flowRef.current?.screenToFlowPosition({ x: event.clientX, y: event.clientY })) : undefined}
         // Deleting is destructive and reaches the comp, so it is a deliberate
         // keystroke rather than something a stray Backspace can do.

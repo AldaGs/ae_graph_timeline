@@ -22,7 +22,7 @@ describe('useHostMonitoring', () => {
       busy: false,
       suspended: false,
       evalScript: vi.fn(async (source) => {
-        if (source === 'NTL_ActiveComp()') {
+        if (source === 'NTL_ActiveComp(1)') {
           return JSON.stringify({ ok: true, active: true, compId: 2,
             compName: 'Comp B', projectPath: 'C:/shot.aep' });
         }
@@ -89,6 +89,36 @@ describe('useHostMonitoring', () => {
     await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
     expect(inspect).toHaveBeenCalledOnce();
 
+    unmount();
+  });
+
+  it('keeps the write lane while footage is active in the Project panel', async () => {
+    const close = vi.fn(async () => {});
+    const host = {
+      connected: true, busy: false, suspended: false,
+      evalScript: vi.fn(async () => JSON.stringify({
+        ok: true, active: false, retainedComp: true, projectItemActive: true,
+        projectPath: 'C:/shot.aep',
+      })),
+      onSuspendChange: vi.fn(() => () => {}),
+    };
+    const loop = { state: { inFlight: false, gestureDepth: 0 }, close,
+      poll: vi.fn(async () => ({ status: 'clean' })) };
+    const loopRef = { current: loop };
+    const activeCompRef = { current: { compId: 1, compName: 'Comp A' } };
+    const setStartup = vi.fn();
+    const { unmount } = renderHook(() => useHostMonitoring({
+      host, startup: { state: 'ready' }, loopRef, activeCompRef,
+      loopEventsRef: { current: vi.fn() }, inspectRef: { current: vi.fn() },
+      setLink: vi.fn(), setSelected: vi.fn(), setContextMenu: vi.fn(), setStartup,
+      storageRef: { current: { identity: { projectPath: 'C:/shot.aep' } } },
+    }));
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+    expect(close).not.toHaveBeenCalled();
+    expect(loopRef.current).toBe(loop);
+    expect(activeCompRef.current?.compId).toBe(1);
+    expect(setStartup).not.toHaveBeenCalled();
     unmount();
   });
 });

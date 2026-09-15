@@ -625,12 +625,13 @@ test('an expression node is never completed from a layer either', async () => {
   await loop.close();
 });
 
-test('footage import binds layer and project-item identities and settles clean', async () => {
+test('Project footage drop binds layer and item identities and settles clean', async () => {
   const ae = makeAE();
+  const item = ae.project.importFile(new ae.ctx.ImportOptions(new ae.ctx.File('D:/shot/plate.mov')));
   const graph = createGraph();
   addNode(graph, { id: 'plate', kind: 'footage', name: 'plate.mov',
     props: defaultLayerProps('footage'),
-    source: { kind: 'footage', path: 'D:/shot/plate.mov', itemId: null } });
+    source: { kind: 'footage', path: 'D:/shot/plate.mov', itemId: item.id } });
 
   const loop = createWriteLoop({ host: ae.host, graph, observeAfterPatch: true });
   loop.touch('Import plate.mov');

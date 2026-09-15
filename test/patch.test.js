@@ -102,37 +102,38 @@ test('a created layer is tagged in the same undo group that created it', () => {
   assert.equal(ae.undo.groups.length, 1);
 });
 
-test('source-backed footage creation imports one item and returns both identities', () => {
+test('source-backed footage creation reuses one Project item and returns both identities', () => {
   const ae = makeAE();
+  const item = ae.project.importFile(new ae.ctx.ImportOptions(new ae.ctx.File('D:/shot/plate.mov')));
   const receipt = run(ae, [{ op: 'createLayer', node: 'plate', kind: 'footage',
-    name: 'plate.mov', props: {}, source: { kind: 'footage', path: 'D:/shot/plate.mov' } }]);
+    name: 'plate.mov', props: {}, source: { kind: 'footage', itemId: item.id } }]);
 
   const layer = ae.comp.byTag('plate');
   assert.ok(layer);
   assert.equal(layer.source.name, 'plate.mov');
   assert.equal(receipt.createdIds.plate, layer.id);
   assert.equal(receipt.createdSourceIds.plate, layer.source.id);
-  assert.equal(receipt.inverse[0].op, 'deleteImportedLayer');
+  assert.equal(receipt.inverse[0].op, 'deleteLayer');
+  assert.equal(ae.project.numItems, 2);
 });
 
-test('missing or unsupported footage leaves no layer or project item', () => {
-  for (const path of ['D:/missing.mov', 'D:/unsupported.xyz']) {
-    const ae = makeAE();
-    assert.throws(() => run(ae, [{ op: 'createLayer', node: 'plate', kind: 'footage',
-      name: 'plate', props: {}, source: { kind: 'footage', path } }]));
-    assert.equal(ae.comp.byTag('plate'), undefined);
-    assert.equal(ae.project.numItems, 1);
-  }
-});
-
-test('rolling back footage creation removes its unused imported item', () => {
+test('missing Project footage identity leaves no layer or project item', () => {
   const ae = makeAE();
+  assert.throws(() => run(ae, [{ op: 'createLayer', node: 'plate', kind: 'footage',
+    name: 'plate', props: {}, source: { kind: 'footage', itemId: 9999 } }]));
+  assert.equal(ae.comp.byTag('plate'), undefined);
+  assert.equal(ae.project.numItems, 1);
+});
+
+test('rolling back footage creation keeps the user-owned Project item', () => {
+  const ae = makeAE();
+  const item = ae.project.importFile(new ae.ctx.ImportOptions(new ae.ctx.File('D:/shot/plate.mov')));
   const receipt = run(ae, [{ op: 'createLayer', node: 'plate', kind: 'footage',
-    name: 'plate.mov', props: {}, source: { kind: 'footage', path: 'D:/shot/plate.mov' } }]);
+    name: 'plate.mov', props: {}, source: { kind: 'footage', itemId: item.id } }]);
   const rollback = parseReceipt(ae.eval(rollbackCall(receipt)));
   assert.equal(rollback.ok, true);
   assert.equal(ae.comp.byTag('plate'), undefined);
-  assert.equal(ae.project.numItems, 1);
+  assert.equal(ae.project.numItems, 2);
 });
 
 test('an expression edge is written, and its tag makes it ours', () => {

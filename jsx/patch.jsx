@@ -111,27 +111,27 @@ function ntlpCreateLayer(ctx, op) {
     // patch that is slow for a bad one.
     var comp = ctx.comp;
     var layer;
-    var importedItem = null;
+    var sourceItem = null;
     if (op.kind === 'footage') {
-        if (!op.source || !op.source.path) throw ntlpFail('footage layer has no source path');
-        var sourceFile = new File(op.source.path);
-        if (!sourceFile.exists) throw ntlpFail('footage file does not exist: ' + op.source.path);
-        var importOptions = new ImportOptions(sourceFile);
-        if (importOptions.canImportAs && !importOptions.canImportAs(ImportAsType.FOOTAGE)) {
-            throw ntlpFail('file cannot be imported as footage: ' + op.source.path);
+        if (!op.source || op.source.itemId === undefined || op.source.itemId === null) {
+            throw ntlpFail('footage layer has no AE project-item id');
         }
-        importOptions.importAs = ImportAsType.FOOTAGE;
-        importedItem = app.project.importFile(importOptions);
-        if (!importedItem || !(importedItem instanceof FootageItem)) {
-            try { if (importedItem) importedItem.remove(); } catch (badItem) { /* best effort */ }
-            throw ntlpFail('After Effects did not create a footage item');
+        for (var pi = 1; pi <= app.project.numItems; pi++) {
+            var candidateItem = app.project.item(pi);
+            if (candidateItem && candidateItem.id === op.source.itemId) {
+                sourceItem = candidateItem;
+                break;
+            }
         }
+        var usableFootage = false;
         try {
-            layer = comp.layers.add(importedItem);
-        } catch (addError) {
-            try { importedItem.remove(); } catch (removeError) { /* best effort */ }
-            throw addError;
+            usableFootage = sourceItem && !ntlrIsCompItem(sourceItem)
+                && sourceItem.mainSource !== undefined;
+        } catch (eType) { usableFootage = false; }
+        if (!usableFootage) {
+            throw ntlpFail('AE project item ' + op.source.itemId + ' is not footage');
         }
+        layer = comp.layers.add(sourceItem);
     } else if (op.kind === 'null') {
         layer = comp.layers.addNull();
     } else if (op.kind === 'text') {
@@ -171,7 +171,7 @@ function ntlpCreateLayer(ctx, op) {
     ctx.created++;
     // M4: record the native id so the panel can cache it on the graph node.
     ctx.createdIds[op.node] = layer.id;
-    if (importedItem) ctx.createdSourceIds[op.node] = importedItem.id;
+    if (sourceItem) ctx.createdSourceIds[op.node] = sourceItem.id;
 
     if (op.props) {
         for (var k in op.props) {
@@ -182,9 +182,9 @@ function ntlpCreateLayer(ctx, op) {
             ctx.writes++;
         }
     }
-    return importedItem
-        ? { op: 'deleteImportedLayer', node: op.node, sourceItemId: importedItem.id }
-        : { op: 'deleteLayer', node: op.node };
+    // The project item predates this layer and remains owned by AE/the user.
+    // Rollback removes only the layer Node Timeline created.
+    return { op: 'deleteLayer', node: op.node };
 }
 
 function ntlpDeleteImportedLayer(ctx, op) {

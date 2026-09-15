@@ -79,9 +79,10 @@ test('a node with no layer is created', () => {
 test('a footage node carries its source into the create operation', () => {
   const g = createGraph();
   addNode(g, { id: 'plate', kind: 'footage', name: 'plate.mov', props: {},
-    source: { kind: 'footage', path: 'D:/shot/plate.mov', itemId: null } });
+    source: { kind: 'footage', path: 'D:/shot/plate.mov', itemId: 27 } });
   const create = opsOf(diff(g, comp([])), 'createLayer')[0];
   assert.equal(create.kind, 'footage');
+  assert.equal(create.source.itemId, 27);
   assert.equal(create.source.path, 'D:/shot/plate.mov');
 });
 

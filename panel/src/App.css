@@ -28,6 +28,7 @@ html, body, #root {
 
 .ntl-app { display: flex; flex-direction: column; height: 100%; }
 .ntl-canvas { position: relative; }
+.ntl-project-drop { color: var(--ntl-dim); white-space: nowrap; padding: 0 4px; }
 /* ------------------------------------------------------------- the inspector
 
    Blender's properties editor, because the outliner beside it already is one:
