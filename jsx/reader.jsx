@@ -160,7 +160,7 @@ function ntlrKindOf(layer) {
     if (layer instanceof ShapeLayer) return 'shape';
     if (layer.nullLayer) return 'null';
     try {
-        if (layer.source && layer.source instanceof CompItem) return 'precomp';
+        if (layer.source && ntlrIsCompItem(layer.source)) return 'precomp';
     } catch (e) { /* source can throw on exotic layers; kind falls through */ }
     return 'footage';
 }
@@ -331,19 +331,19 @@ function ntlrFindComp(name, compId) {
     if (compId !== undefined && compId !== null) {
         for (var c = 1; c <= app.project.numItems; c++) {
             var candidate = app.project.item(c);
-            if (candidate instanceof CompItem && candidate.id === compId) return candidate;
+            if (ntlrIsCompItem(candidate) && candidate.id === compId) return candidate;
         }
         return null;
     }
     if (name) {
         for (var i = 1; i <= app.project.numItems; i++) {
             var it = app.project.item(i);
-            if (it instanceof CompItem && it.name === name) return it;
+            if (ntlrIsCompItem(it) && it.name === name) return it;
         }
         return null;
     }
     var a = app.project.activeItem;
-    return (a && a instanceof CompItem) ? a : null;
+    return ntlrIsCompItem(a) ? a : null;
 }
 
 function NTL_ReadComp(compName, includeEffects, compId) {
@@ -354,10 +354,10 @@ function NTL_ReadComp(compName, includeEffects, compId) {
         }
         if (compId !== undefined && compId !== null) {
             var active = app.project.activeItem;
-            if (!active || !(active instanceof CompItem) || active.id !== compId) {
+            if (!ntlrIsCompItem(active) || active.id !== compId) {
                 return ntlrVal({ ok: false, message: 'active composition changed',
                                  expectedCompId: compId,
-                                 actualCompId: active && active instanceof CompItem ? active.id : null });
+                                 actualCompId: ntlrIsCompItem(active) ? active.id : null });
             }
         }
         $.hiresTimer; // reading it once is how you reset it
@@ -397,7 +397,7 @@ function NTL_ActiveComp() {
             if (app.project && app.project.file) path = app.project.file.fsName;
         } catch (ePath) { /* an unsaved project has no file; not an error */ }
         var active = app.project && app.project.activeItem;
-        if (!active || !(active instanceof CompItem)) {
+        if (!ntlrIsCompItem(active)) {
             return ntlrVal({ ok: true, active: false, projectPath: path });
         }
         return ntlrVal({ ok: true, active: true, compName: active.name,
@@ -422,7 +422,7 @@ function NTL_ShowNewCompDialog() {
         app.executeCommand(commandId);
 
         var active = app.project.activeItem;
-        var created = app.project.numItems > beforeItems && active && active instanceof CompItem;
+        var created = app.project.numItems > beforeItems && ntlrIsCompItem(active);
         if (!created) return ntlrVal({ ok: true, created: false });
         return ntlrVal({ ok: true, created: true, compName: active.name, compId: active.id });
     } catch (e) {
@@ -443,7 +443,7 @@ function NTL_Revision() {
 function NTL_ProjectIdentity() {
     var active = app.project && app.project.activeItem;
     return ntlrVal({ projectPath: app.project && app.project.file ? app.project.file.fsName : null,
-        compId: active && active instanceof CompItem ? active.id : null });
+        compId: ntlrIsCompItem(active) ? active.id : null });
 }
 
 // ------------------------------------------------------- frame transport
@@ -492,7 +492,7 @@ function NTL_TransportState(compId) {
     try {
         var comp = ntlrFindComp(null, compId);
         var active = app.project && app.project.activeItem;
-        if (!comp || !active || !(active instanceof CompItem) || active.id !== comp.id) {
+        if (!comp || !ntlrIsCompItem(active) || active.id !== comp.id) {
             return ntlrVal({ ok: false, message: 'active composition changed' });
         }
         return ntlrVal(ntlrTransportRecord(comp));
@@ -505,7 +505,7 @@ function NTL_SetCurrentFrame(compId, frame) {
     try {
         var comp = ntlrFindComp(null, compId);
         var active = app.project && app.project.activeItem;
-        if (!comp || !active || !(active instanceof CompItem) || active.id !== comp.id) {
+        if (!comp || !ntlrIsCompItem(active) || active.id !== comp.id) {
             return ntlrVal({ ok: false, message: 'active composition changed' });
         }
         var state = ntlrTransportRecord(comp);

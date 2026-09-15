@@ -195,7 +195,7 @@ function ntlpDeleteImportedLayer(ctx, op) {
     var used = false;
     for (var i = 1; i <= app.project.numItems && !used; i++) {
         var comp = app.project.item(i);
-        if (!(comp instanceof CompItem)) continue;
+        if (!ntlrIsCompItem(comp)) continue;
         for (var j = 1; j <= comp.numLayers; j++) {
             var candidate = comp.layer(j);
             if (candidate.source && candidate.source.id === op.sourceItemId) {
@@ -583,12 +583,12 @@ function ntlpFindComp(name) {
     if (name) {
         for (var i = 1; i <= app.project.numItems; i++) {
             var it = app.project.item(i);
-            if (it instanceof CompItem && it.name === name) return it;
+            if (ntlrIsCompItem(it) && it.name === name) return it;
         }
         return null;
     }
     var a = app.project.activeItem;
-    return (a && a instanceof CompItem) ? a : null;
+    return ntlrIsCompItem(a) ? a : null;
 }
 
 /**
@@ -612,10 +612,10 @@ function NTL_ApplyPatch(compName, ops, label, expectRevision, expectCompId) {
         if (!comp) return ntlrVal({ ok: false, message: 'no composition' });
         if (expectCompId !== undefined && expectCompId !== null) {
             var activeComp = app.project.activeItem;
-            if (!activeComp || !(activeComp instanceof CompItem) || activeComp.id !== expectCompId) {
+            if (!ntlrIsCompItem(activeComp) || activeComp.id !== expectCompId) {
                 return ntlrVal({ ok: false, stale: true, message: 'active composition changed',
                                  expectedCompId: expectCompId,
-                                 actualCompId: activeComp && activeComp instanceof CompItem ? activeComp.id : null });
+                                 actualCompId: ntlrIsCompItem(activeComp) ? activeComp.id : null });
             }
         }
         if (!ops || !(ops instanceof Array)) {

@@ -76,6 +76,20 @@ function ntlrNodeIdFromTag(comment) {
     return s.slice(NTLR_TAG_PREFIX.length);
 }
 
+// Do not use `item instanceof CompItem` at a project-item boundary. Some AE
+// builds raise the host assertion "Item must be a comp" when the active item is
+// footage (notably just after importing an image sequence), instead of simply
+// returning false. A CompItem's layer() method is the capability we actually
+// need, and probing a missing host-object member is safe and side-effect free.
+function ntlrIsCompItem(item) {
+    if (!item) return false;
+    try {
+        return typeof item.layer === 'function' && item.layers !== undefined;
+    } catch (e) {
+        return false;
+    }
+}
+
 // ---------------------------------------------------------------- properties
 
 var NTLR_TRANSFORM = [

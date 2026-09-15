@@ -291,7 +291,7 @@ export class FakeComp {
   byTag(tag) { return this._layers.find((l) => l.comment.trim() === `ntl:${tag}`); }
 }
 
-export function makeAE() {
+export function makeAE({ strictCompChecks = false } = {}) {
   const project = { revision: 1, _items: [] };
   const undo = { groups: [], open: 0, maxOpen: 0 };
 
@@ -347,10 +347,20 @@ export function makeAE() {
   const LightLayer = layerClass('light');
   const TextLayer = layerClass('text');
   const ShapeLayer = layerClass('shape');
+  // Reproduce the host assertion seen in AE after an imported FootageItem
+  // becomes the active Project item. Normal JavaScript returns false for this
+  // cross-type instanceof check; affected AE builds throw "Item must be a
+  // comp" instead. Production code must not depend on that check.
+  const CompItem = strictCompChecks
+    ? { [Symbol.hasInstance]: (x) => {
+        if (x instanceof FakeFootageItem) throw new Error('Item must be a comp');
+        return x instanceof FakeComp;
+      } }
+    : FakeComp;
 
   const sandbox = {
     app,
-    CompItem: FakeComp,
+    CompItem,
     CameraLayer,
     LightLayer,
     TextLayer,

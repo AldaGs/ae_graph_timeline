@@ -42,7 +42,7 @@
 function NTL_SelectLayers(compId, tags, exclusive) {
     try {
         var active = app.project && app.project.activeItem;
-        if (!active || !(active instanceof CompItem)) {
+        if (!ntlrIsCompItem(active)) {
             return ntlrVal({ ok: false, message: 'no active composition' });
         }
         if (compId !== undefined && compId !== null && active.id !== compId) {

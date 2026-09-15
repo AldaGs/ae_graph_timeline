@@ -362,6 +362,17 @@ test('the host reports the project path alongside the active comp', () => {
   assert.equal(active.compId, ae.comp.id);
 });
 
+test('the active-comp monitor safely rejects imported footage', () => {
+  const ae = makeAE({ strictCompChecks: true });
+  const footage = ae.project.importFile(
+    new ae.ctx.ImportOptions(new ae.ctx.File('D:/shot/frame_0001.png')),
+  );
+  ae.project.activeItem = footage;
+
+  const active = parseActiveComp(ae.eval(activeCompCall()));
+  assert.equal(active.active, false);
+});
+
 test('Save As is classified as a move, so the sidecar can be re-pointed', () => {
   // The symptom: saving the .aep to another path left the .ntl file next to the
   // OLD project, where reopening the new one would never find it. Nothing in the
