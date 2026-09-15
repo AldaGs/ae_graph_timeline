@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 
 import { createGraph, addNode } from '../src/graph.js';
 import { createGraphCommands } from '../panel/src/graphCommands.js';
+import { createWriteLoop } from '../src/loop.js';
+import { makeAE } from './fake-ae.js';
 
 function setup() {
   const graph = createGraph();
@@ -126,4 +128,20 @@ test('invalid reorder and field values are atomic model refusals', () => {
   assert.throws(() => s.commands.setEnabled(node.id, 'yes'));
   assert.equal(JSON.stringify(s.graph), before);
   assert.equal(s.touches.length, touches);
+});
+
+test('a gesture opening against a closed loop does not take the drag with it', () => {
+  // Closing the loop is an ordinary event - the comp changed, or AE is quitting -
+  // and a scrub in progress must survive it. The graph is still the graph.
+  const graph = createGraph();
+  addNode(graph, { id: 'a', name: 'A', props: { opacity: 100 } });
+  const ae = makeAE();
+  const loop = createWriteLoop({ host: ae.host, graph });
+  void loop.close();
+
+  const commands = createGraphCommands({ graph, getLoop: () => loop, redraw() {} });
+  assert.equal(commands.beginGesture('Set A opacity'), 0, 'refused, not thrown');
+  commands.setProperty('a', 'opacity', 40);
+  assert.equal(graph.nodes.a.props.opacity, 40, 'the edit still landed in the graph');
+  return commands.endGesture().then((r) => assert.equal(r.status, 'idle'));
 });

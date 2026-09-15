@@ -270,6 +270,17 @@ export function setEffectParam(graph, nodeId, effectIndex, param, value) {
   if (!node) throw new Error(`setEffectParam: unknown node "${nodeId}"`);
   const effect = node.effects[effectIndex];
   if (!effect) throw new Error(`setEffectParam: no effect at index ${effectIndex}`);
+  if (!(param in effect.params)) throw new Error(`setEffectParam: "${param}" is not a parameter of ${effect.matchName}`);
+  // The same rule setNodeProperty enforces, and for the same reason: a value the
+  // reader cannot read back is a value the diff will try to correct forever.
+  // Checked here rather than at the panel, because the model is what the writer
+  // is handed and the panel is not the only thing that can reach it.
+  const values = Array.isArray(value) ? value : [value];
+  if (!values.length || !values.every(Number.isFinite)) throw new Error('Enter finite numeric values');
+  if (Array.isArray(effect.params[param]) !== Array.isArray(value)
+      || (Array.isArray(value) && value.length !== effect.params[param].length)) {
+    throw new Error('Vector dimensions must match');
+  }
   effect.params[param] = value;
   return effect;
 }

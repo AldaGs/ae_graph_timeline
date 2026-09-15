@@ -31,8 +31,96 @@ html, body, #root {
 .ntl-inspector { position: absolute; top: 8px; left: 8px; width: 225px; max-height: calc(100% - 16px); overflow: auto; padding: 12px; background: var(--ntl-panel); border: 1px solid var(--ntl-line); border-radius: 5px; z-index: 900; }
 .ntl-inspector fieldset { border: 0; padding: 0; min-width: 0; }
 .ntl-inspector label { display: flex; flex-direction: column; gap: 3px; margin: 9px 0; }
-.ntl-inspector input, .ntl-inspector select { width: 100%; min-width: 0; padding: 5px; background: var(--ntl-bg); color: var(--ntl-text); border: 1px solid var(--ntl-line); border-radius: 3px; }
+/* Every inspector field EXCEPT a scrubber. A scrubber draws its own box, and
+   this rule out-specifies `.ntl-scrub-input` (class + type beats class), so
+   without the exclusion each number ended up in a second nested border. */
+.ntl-inspector input:not(.ntl-scrub-input), .ntl-inspector select { width: 100%; min-width: 0; padding: 5px; background: var(--ntl-bg); color: var(--ntl-text); border: 1px solid var(--ntl-line); border-radius: 3px; }
 .ntl-inspector details { margin: 9px 0; }
+.ntl-inspector-note { color: var(--ntl-dim); margin: 9px 0 0; }
+
+/* An inline effect, as its own block - the panel's Effect Controls. */
+.ntl-fx { margin: 12px 0 0; padding-top: 8px; border-top: 1px solid var(--ntl-line); }
+.ntl-fx-name { display: block; margin-bottom: 4px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* ------------------------------------------------------- scrubbable values
+
+   After Effects' numeric fields: a number you drag, underlined to say so, that
+   becomes a text box when you click it. The cursor is the whole affordance -
+   `ew-resize` over a number is what tells an AE user it can be scrubbed, and
+   there is nothing else on the row that could say it. */
+
+.ntl-prop { margin: 9px 0; }
+
+.ntl-prop-name {
+  display: block;
+  margin-bottom: 3px;
+  color: var(--ntl-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Components sit side by side and share the width evenly, so position reads as
+   two numbers rather than as a sentence. Wrapping is allowed: four colour
+   channels in a 225px panel do not fit on one line, and squeezing them to
+   three characters each would be worse than a second row. */
+.ntl-prop-fields { display: flex; flex-wrap: wrap; gap: 4px; }
+
+.ntl-scrub {
+  display: inline-flex;
+  align-items: baseline;
+  /* Not stretched. A lone opacity field spanning the panel reads as a text box
+     again, which is the one thing these are not; AE's are narrow and left. */
+  flex: 0 1 68px;
+  min-width: 52px;
+  gap: 2px;
+  padding: 3px 5px;
+  background: var(--ntl-bg);
+  border: 1px solid var(--ntl-line);
+  border-radius: 3px;
+  cursor: ew-resize;
+}
+
+.ntl-scrub:hover { border-color: #4a4a4a; }
+.ntl-scrub.is-editing { border-color: var(--ntl-edge); cursor: text; }
+.ntl-scrub.is-disabled { cursor: default; opacity: 0.55; }
+
+.ntl-scrub-axis,
+.ntl-scrub-unit { color: var(--ntl-dim); flex: 0 0 auto; font-size: 10px; }
+
+/* The number itself. Borderless inside its own box, and dotted-underlined the
+   way AE underlines a scrubbable value - dropped while editing, because then it
+   is an ordinary text field and should look like one. */
+.ntl-scrub-input {
+  flex: 1 1 auto;
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  background: transparent;
+  border: none;
+  color: var(--ntl-edge);
+  font: inherit;
+  text-align: right;
+  cursor: inherit;
+  border-bottom: 1px dotted rgba(91, 157, 217, 0.55);
+}
+
+.ntl-scrub.is-editing .ntl-scrub-input {
+  border-bottom-color: transparent;
+  color: var(--ntl-text);
+  text-align: left;
+  user-select: text;
+}
+
+.ntl-scrub.is-disabled .ntl-scrub-input {
+  color: var(--ntl-dim);
+  border-bottom-style: solid;
+  border-bottom-color: transparent;
+}
+
+/* A drag must not select the text it is dragging over, and must not turn into
+   the browser's own scroll gesture. */
+.ntl-scrub-input[readonly] { user-select: none; touch-action: none; }
 .ntl-inspector details button { margin: 4px 3px 4px 0; }
 button:focus-visible, input:focus-visible, select:focus-visible, summary:focus-visible { outline: 2px solid var(--ntl-edge); outline-offset: 2px; }
 .ntl-outliner { resize: horizontal; min-width: 180px; max-width: 45%; }

@@ -1,5 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { BLEND_MODES, desiredExpressions } from '../../../src/graph.js';
+import { scrubFieldsFor, scrubLabelFor, withComponent } from '../../../src/scrub.js';
+import ScrubValue from './ScrubValue.jsx';
 
 const EFFECTS = [
   { name: 'Gaussian Blur', matchName: 'ADBE Gaussian Blur 2' },
@@ -7,19 +9,51 @@ const EFFECTS = [
   { name: 'Tint', matchName: 'ADBE Tint' },
 ];
 
-function ValueEditor({ value, label, disabled, onCommit, onError }) {
-  const [draft, setDraft] = useState(String(value));
-  useEffect(() => setDraft(String(value)), [value]);
-  const commit = () => {
+/**
+ * One property, edited the way After Effects edits one.
+ *
+ * A vector is one scrubbable field per component rather than a comma-separated
+ * string: "960, 540" in a single box is a text field pretending to be two
+ * numbers, and it cannot be dragged.
+ *
+ * The whole scrub is ONE gesture, so a drag across the field costs one undo
+ * entry in AE rather than one per frame - the same rule P1.5 applies to a drag
+ * on the canvas, for the same measured reason (S5: the stack holds 99).
+ */
+function PropertyRow({ node, prop, value, driven = false, label, onWrite, onGesture, onError }) {
+  const fields = scrubFieldsFor(prop, value);
+
+  const write = useCallback((next) => {
     try {
-      const parts = draft.split(',').map((part) => part.trim());
-      if (parts.some((part) => !part)) throw new Error('Enter a number for each component');
-      onCommit(Array.isArray(value) ? parts.map(Number) : Number(draft));
-    } catch (e) { onError(e.message); setDraft(String(value)); }
-  };
-  return <input aria-label={label} disabled={disabled} value={draft}
-    onChange={(e) => setDraft(e.target.value)} onBlur={commit}
-    onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); if (e.key === 'Escape') setDraft(String(value)); }} />;
+      onWrite(next);
+    } catch (e) {
+      onError(e.message);
+    }
+  }, [onWrite, onError]);
+
+  return (
+    <div className="ntl-prop">
+      <span className="ntl-prop-name" title={prop}>
+        {label ?? scrubLabelFor(prop)}{driven ? ' · linked' : ''}
+      </span>
+      <div className="ntl-prop-fields">
+        {fields.map((field) => (
+          <ScrubValue
+            key={field.index ?? prop}
+            value={field.value}
+            spec={field.spec}
+            axis={field.axis}
+            label={`${node.name} ${prop}${field.axis ? ` ${field.axis}` : ''}`}
+            disabled={driven}
+            onScrubStart={() => onGesture.begin(`Set ${node.name} ${prop}`)}
+            onScrub={(next) => write(withComponent(value, field.index, next))}
+            onScrubEnd={() => void onGesture.end()}
+            onCommit={(next) => write(withComponent(value, field.index, next))}
+          />
+        ))}
+      </div>
+    </div>
+  );
 }
 
 export default function Inspector({ graph, selected, commands, editable, onError }) {
@@ -33,6 +67,12 @@ export default function Inspector({ graph, selected, commands, editable, onError
   const layer = !['effect', 'expression'].includes(node.kind);
   const hasParams = Object.keys(node.props).length > 0;
   const driven = desiredExpressions(graph);
+  // Every scrub in this panel opens and closes a gesture the same way, so a
+  // drag is one undo entry in After Effects however many frames it spans.
+  const gesture = {
+    begin: (label) => commands.beginGesture(label),
+    end: () => commands.endGesture(),
+  };
   const add = (effect) => {
     if (!effect.matchName.trim()) { onError('Enter an effect match name'); return; }
     try { commands.addInlineEffect(node.id, effect); }
@@ -57,10 +97,28 @@ export default function Inspector({ graph, selected, commands, editable, onError
       {/* Not gated on `layer`: an effect node's parameters live in `props` too,
           and while this was layer-only they were readable on the canvas and
           editable nowhere. */}
-      {node.kind !== 'expression' && Object.entries(node.props).map(([prop, value]) => <label key={prop}>{prop}{driven[`${node.id}|${prop}`] ? ' · linked' : ''}
-        <ValueEditor value={value} label={`${node.name} ${prop}`} disabled={!!driven[`${node.id}|${prop}`]}
-          onCommit={(next) => { if (JSON.stringify(next) !== JSON.stringify(value)) commands.setProperty(node.id, prop, next); }} onError={onError} />
-      </label>)}
+      {node.kind !== 'expression' && Object.entries(node.props).map(([prop, value]) => (
+        <PropertyRow key={prop} node={node} prop={prop} value={value}
+          driven={!!driven[`${node.id}|${prop}`]} onGesture={gesture} onError={onError}
+          onWrite={(next) => commands.setProperty(node.id, prop, next)} />
+      ))}
+
+      {/* An INLINE effect's parameters. They live in node.effects rather than in
+          node.props, which is why they were the one place in the inspector a
+          number could be read and not touched - the canvas printed them and
+          nothing could edit them. This is the panel's Effect Controls. */}
+      {layer && node.effects.map((effect, index) => (
+        <section className="ntl-fx" key={`${effect.matchName}:${index}`}>
+          <span className="ntl-fx-name" title={effect.matchName}>{effect.name || effect.matchName}</span>
+          {Object.keys(effect.params).length === 0
+            ? <p className="ntl-inspector-note">No parameters were read for this effect.</p>
+            : Object.entries(effect.params).map(([param, value]) => (
+              <PropertyRow key={param} node={node} prop={param} value={value} label={param}
+                onGesture={gesture} onError={onError}
+                onWrite={(next) => commands.setEffectParam(node.id, index, param, next)} />
+            ))}
+        </section>
+      ))}
       {layer && <details id="ntl-inspector-effects"><summary>Add effect</summary>
         <input aria-label="Search effects" placeholder="Search effects…" value={search} onChange={(e) => setSearch(e.target.value)} />
         {EFFECTS.filter((fx) => fx.name.toLowerCase().includes(search.toLowerCase())).map((fx) => <button key={fx.matchName} onClick={() => add(fx)}>{fx.name}</button>)}

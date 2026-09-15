@@ -18,6 +18,7 @@ Changes to AE go through the serialized write loop, never directly from a card.
 | `src/graph.js`, `src/view.js` | Exported model mutations and graph/flow translation |
 | `src/diff.js`, `src/loop.js` | Desired-vs-observed changes, write sequencing and drift gate |
 | `jsx/reader.jsx`, `jsx/patch.jsx` | Host reads and guarded writes in one undo group |
+| `src/scrub.js`, `components/ScrubValue.jsx` | Scrubbable numeric fields: the arithmetic pure and tested, the pointer handling on top |
 | `src/outline.js` | The outliner's rows and the drag that reorders them. Flat by design: parenting is the canvas's to draw |
 | `jsx/select.jsx`, `src/select.js` | Layer selection, so AE's Effect Controls and Properties panels follow the graph. No undo entry and no revision movement |
 

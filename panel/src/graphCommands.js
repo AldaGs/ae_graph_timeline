@@ -1,4 +1,4 @@
-import { addNode, addEffect, defaultLayerProps, moveNode, setNodeExpression, setNodeProperty, setNodeField, reorderNodes } from '../../src/graph.js';
+import { addNode, addEffect, defaultLayerProps, moveNode, setEffectParam, setNodeExpression, setNodeProperty, setNodeField, reorderNodes } from '../../src/graph.js';
 import {
   connect, connectExpression, connectFlow, connectParent,
   disconnect, handleMeta, nextNodeId, removeNode, renameNode,
@@ -77,6 +77,11 @@ export function createGraphCommands({ graph, getLoop, redraw, setSelected = () =
       return commit(`Delete ${nodeId}`, true);
     },
 
+    setEffectParam(nodeId, effectIndex, param, value) {
+      const effect = setEffectParam(graph, nodeId, effectIndex, param, value);
+      return commit(`Set ${effect.name} ${param}`, value);
+    },
+
     addInlineEffect(nodeId, effect) {
       const entry = addEffect(graph, nodeId, effect);
       return commit(`Add ${entry.name} effect`, entry);
@@ -150,13 +155,25 @@ export function createGraphCommands({ graph, getLoop, redraw, setSelected = () =
     },
 
     beginGesture(label) {
-      return loop()?.beginGesture(label) ?? 0;
+      // A closed loop throws, and closing one is an ordinary event: the comp
+      // changed, or After Effects is quitting. A gesture opening across that
+      // moment must not take the drag down with it - the graph is still the
+      // graph, and the panel is still usable without a loop behind it.
+      try {
+        return loop()?.beginGesture(label) ?? 0;
+      } catch {
+        return 0;
+      }
     },
 
     endGesture() {
       const current = loop();
       if (!current || current.state.gestureDepth === 0) return Promise.resolve({ status: 'idle' });
-      return current.endGesture();
+      try {
+        return current.endGesture();
+      } catch (e) {
+        return Promise.resolve({ status: 'idle', error: e });
+      }
     },
   };
 }
