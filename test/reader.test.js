@@ -308,6 +308,17 @@ test('the comp frame is carried so a new layer can be centred in it', () => {
   assert.equal(state.height, 1080);
 });
 
+test('the reader carries shy layer and composition visibility state', () => {
+  const ae = makeAE();
+  const layer = ae.comp.add('Effect Host', { comment: tagFor('fx'), kind: 'null' });
+  layer.shy = true;
+  ae.comp.hideShyLayers = true;
+
+  const state = parseCompState(ae.eval(readCompCall()));
+  assert.equal(state.layers[0].shy, true);
+  assert.equal(state.hideShyLayers, true);
+});
+
 // ---- M4.9: the project's own path, so the graph's sidecar can follow it ----
 
 test('the identity check carries the project path, and normalizes an unsaved one', () => {

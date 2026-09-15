@@ -220,6 +220,13 @@ function ntlrReadComp(comp, includeEffects) {
         // anything in compState looks to the diff like something it may write.
         if (nodeId !== null) {
             managed++;
+            // Effect-node host nulls are graph implementation details. Shy is
+            // read so the diff can repair an older or manually un-shied host.
+            try {
+                rec.shy = layer.shy ? true : false;
+            } catch (eShy) {
+                ntlrNote('shy', eShy);
+            }
             // R1: label and blend mode are READ, not assumed. The diff only
             // emits a write for a field it observed, so a field the reader
             // omitted was one the inspector could change forever while After
@@ -285,6 +292,7 @@ function ntlrReadComp(comp, includeEffects) {
         revision: app.project.revision,
         duration: comp.duration,
         frameRate: comp.frameRate,
+        hideShyLayers: comp.hideShyLayers ? true : false,
         // The panel needs the frame to place a new layer's position and anchor
         // point at the centre of THIS comp rather than at a hardcoded 1920x1080.
         width: comp.width,

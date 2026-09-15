@@ -171,8 +171,11 @@ export function usePanelLifecycle() {
         aeHistoryRef.current.reset();
 
         const inspected = inspectSavedGraph(graph, saved?.document.baseline, compState);
-        const { diagnostic, baselineChanged } = inspected;
+        const { baselineChanged } = inspected;
         replaceGraph(graph, inspected.graph);
+        // Opening an existing graph starts it for this composition. This also
+        // migrates sidecars saved before graph-level shy visibility existed.
+        if (Object.keys(graph.nodes).length > 0) graph.hideShyLayers = true;
         if (!loopRef.current) {
           const { createWriteLoop } = await import('../../../src/loop.js');
           if (cancelled) return;
@@ -225,6 +228,10 @@ export function usePanelLifecycle() {
           });
         }
 
+        // Shy-layer visibility is graph housekeeping and is safe to repair
+        // automatically. It should not force a source-of-truth decision.
+        const decisionOps = diff(graph, compState).ops.filter((op) =>
+          op.op !== 'setShy' && op.op !== 'setHideShyLayers');
         if (Object.keys(graph.nodes).length === 0) {
           setStartup({
             state: 'empty',
@@ -232,16 +239,17 @@ export function usePanelLifecycle() {
               ? 'The active composition is empty. Start a graph when you are ready.'
               : 'No Node Timeline layers were found. Existing AE layers will remain untouched.',
           });
-        } else if (diagnostic.ops.length > 0 || baselineChanged || saved?.recovered) {
+        } else if (decisionOps.length > 0 || baselineChanged || saved?.recovered) {
           setStartup({
             state: 'needs-decision',
-            detail: `${saved ? 'Saved graph differs from AE' : 'Recovered layers are incomplete'} and would produce ${diagnostic.ops.length} AE changes. Review the graph before choosing a version.`,
+            detail: `${saved ? 'Saved graph differs from AE' : 'Recovered layers are incomplete'} and would produce ${decisionOps.length} AE changes. Review the graph before choosing a version.`,
           });
         } else {
           baselineRef.current = compState;
           lastSyncedGraphRef.current = cloneGraph();
           saveGraph();
           setStartup({ state: 'ready', detail: `Recovered ${Object.keys(graph.nodes).length} managed layer${Object.keys(graph.nodes).length === 1 ? '' : 's'} without pending writes.` });
+          loopRef.current.touch('Activate Node Timeline graph');
         }
       } catch (e) {
         if (cancelled) return;
@@ -450,8 +458,10 @@ export function usePanelLifecycle() {
 
   const startEmptyGraph = useCallback(() => {
     if (startup.state !== 'empty' || !loopRef.current) return;
+    graph.hideShyLayers = true;
     setStartup({ state: 'ready', detail: 'Empty graph ready. Existing unmanaged AE layers remain untouched.' });
-  }, [startup.state]);
+    loopRef.current.touch('Activate Node Timeline graph');
+  }, [startup.state, graph]);
 
   const createNewComp = useCallback(async () => {
     if (!host.connected || startup.state === 'loading') return;

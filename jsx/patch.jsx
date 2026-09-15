@@ -130,6 +130,7 @@ function ntlpCreateLayer(ctx, op) {
     layer.comment = ntlrTagFor(op.node);
     if (op.label !== undefined) layer.label = op.label;
     if (op.enabled !== undefined) layer.enabled = op.enabled;
+    if (op.shy !== undefined) layer.shy = op.shy;
     // AE inserts new layers at the top. Place a new managed layer relative to
     // the existing managed stack in this same undo group.
     if (op.order !== undefined) {
@@ -188,6 +189,19 @@ function ntlpSetEnabled(ctx, op) {
     var before = layer.enabled;
     layer.enabled = op.to;
     return { op: 'setEnabled', node: op.node, to: before };
+}
+
+function ntlpSetShy(ctx, op) {
+    var layer = ntlpLayer(ctx, op.node);
+    var before = layer.shy ? true : false;
+    layer.shy = op.to ? true : false;
+    return { op: 'setShy', node: op.node, to: before };
+}
+
+function ntlpSetHideShyLayers(ctx, op) {
+    var before = ctx.comp.hideShyLayers ? true : false;
+    ctx.comp.hideShyLayers = op.to ? true : false;
+    return { op: 'setHideShyLayers', to: before };
 }
 
 function ntlpSetLabel(ctx, op) {
@@ -500,6 +514,8 @@ function ntlpApplyOne(ctx, op) {
         case 'setBlendMode':    return ntlpSetBlendMode(ctx, op);
         case 'setComment':      return ntlpSetComment(ctx, op);
         case 'setEnabled':      return ntlpSetEnabled(ctx, op);
+        case 'setShy':          return ntlpSetShy(ctx, op);
+        case 'setHideShyLayers':return ntlpSetHideShyLayers(ctx, op);
         case 'setLabel':        return ntlpSetLabel(ctx, op);
         case 'setText':         return ntlpSetText(ctx, op);
         case 'reorder':         return ntlpReorder(ctx, op);

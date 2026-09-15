@@ -393,6 +393,11 @@ export function projectSnapshot(snap, ops, revision) {
       case 'setEnabled':
         if (entry) entry.facts.enabled = op.to;
         break;
+      // Timeline visibility housekeeping is intentionally absent from the
+      // structural drift digest, but it is safe to project through it.
+      case 'setShy':
+      case 'setHideShyLayers':
+        break;
       case 'setExpression':
         if (entry) entry.facts.expressions[op.prop] = op.text;
         break;

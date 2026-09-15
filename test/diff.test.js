@@ -76,6 +76,28 @@ test('a node with no layer is created', () => {
   assert.equal(opsOf(r, 'createLayer')[0].node, 'n1');
 });
 
+test('effect controller hosts are created shy and older hosts are repaired', () => {
+  const g = createGraph();
+  addNode(g, { id: 'fx', kind: 'effect', name: 'Fill', matchName: 'ADBE Fill', props: {} });
+
+  const created = diff(g, comp([]));
+  assert.equal(opsOf(created, 'createLayer')[0].shy, true);
+
+  const existing = diff(g, comp([managed('fx', { kind: 'null', props: {}, shy: false })]));
+  assert.deepEqual(opsOf(existing, 'setShy'), [
+    { op: 'setShy', node: 'fx', from: false, to: true },
+  ]);
+});
+
+test('an activated graph enables the composition Hide Shy Layers switch', () => {
+  const g = createGraph();
+  g.hideShyLayers = true;
+  const result = diff(g, { ...comp([]), hideShyLayers: false });
+  assert.deepEqual(opsOf(result, 'setHideShyLayers'), [
+    { op: 'setHideShyLayers', to: true },
+  ]);
+});
+
 test('a managed layer with no node is deleted', () => {
   const g = createGraph();
   const r = diff(g, comp([managed('gone')]));

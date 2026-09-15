@@ -165,7 +165,10 @@ export function defaultLayerProps(kind, { width = 1920, height = 1080 } = {}) {
 // ---------------------------------------------------------------- the graph
 
 export function createGraph(compName = null) {
-  return { compName, nodes: {}, edges: {} };
+  // Effect nodes are materialized as controller nulls in AE. A graph keeps
+  // those implementation layers out of the timeline by enabling AE's global
+  // Hide Shy Layers switch when the graph starts.
+  return { compName, hideShyLayers: false, nodes: {}, edges: {} };
 }
 
 export function addNode(graph, node) {
@@ -367,6 +370,7 @@ export function hydrateFromComp(graph, compState) {
 /** Replace a recovered graph while preserving the object held by the panel. */
 export function replaceGraph(graph, saved) {
   graph.compName = saved.compName;
+  graph.hideShyLayers = saved.hideShyLayers === true;
   graph.nodes = JSON.parse(JSON.stringify(saved.nodes));
   graph.edges = JSON.parse(JSON.stringify(saved.edges));
 }

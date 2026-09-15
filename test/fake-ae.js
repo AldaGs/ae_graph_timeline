@@ -128,6 +128,7 @@ export class FakeLayer {
     this.nullLayer = kind === 'null';
     this.source = null;
     this.enabled = true;
+    this.shy = false;
     // View state, not project state: After Effects neither marks the project
     // modified nor moves app.project.revision when this changes, which is what
     // lets the panel mirror its own selection onto a click.
@@ -243,6 +244,7 @@ export class FakeComp {
     this.workAreaDuration = this.duration;
     this.time = 0;
     this.dropFrame = false;
+    this.hideShyLayers = false;
     this._layers = [];
     const self = this;
     this.layers = {

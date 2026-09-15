@@ -345,6 +345,23 @@ test('M2 patch ops apply effects and blend mode', () => {
   assert.equal(ae.comp.byTag('a').property('ADBE Effect Parade').numProperties, 0);
 });
 
+test('shy host and composition visibility ops apply and invert', () => {
+  const ae = makeAE();
+  ae.comp.add('Effect Host', { comment: tagFor('fx'), kind: 'null' });
+
+  const receipt = run(ae, [
+    { op: 'setShy', node: 'fx', to: true },
+    { op: 'setHideShyLayers', to: true },
+  ]);
+
+  assert.equal(receipt.ok, true);
+  assert.equal(ae.comp.byTag('fx').shy, true);
+  assert.equal(ae.comp.hideShyLayers, true);
+  assert.deepEqual(receipt.inverse.map((op) => op.op), [
+    'setHideShyLayers', 'setShy',
+  ]);
+});
+
 // ---- M4.8: R2, duplicate cleanup inside one patch -------------------------
 
 test('stripping a copied tag frees the original for later ops in the same patch', () => {

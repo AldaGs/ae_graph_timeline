@@ -208,6 +208,7 @@ export function normalizeCompState(payload, { tolerateReadErrors = false } = {})
       comment: typeof l.comment === 'string' ? l.comment : '',
       kind: l.kind || 'footage',
       enabled: l.enabled !== false,
+      shy: typeof l.shy === 'boolean' ? l.shy : undefined,
       inPoint: l.inPoint,
       outPoint: l.outPoint,
       // R1: carried only when the host actually observed them. `undefined`
@@ -253,6 +254,8 @@ export function normalizeCompState(payload, { tolerateReadErrors = false } = {})
     revision: payload.revision,
     duration: payload.duration,
     frameRate: payload.frameRate,
+    hideShyLayers: typeof payload.hideShyLayers === 'boolean'
+      ? payload.hideShyLayers : undefined,
     layers,
     warnings,
     stats: {

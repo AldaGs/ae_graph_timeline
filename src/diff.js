@@ -53,6 +53,8 @@ const OP_ORDER = [
   'setComment',
   'setProp',
   'setEnabled',
+  'setShy',
+  'setHideShyLayers',
   'setLabel',
   'setText',
   'setBlendMode',
@@ -155,6 +157,13 @@ export function diff(graph, compState) {
   const effectFlows = buildEffectFlowIndex(graph);
   warnings.push(...effectFlows.errors);
 
+  // This is a composition-level timeline display setting, not a layer. It is
+  // nevertheless graph-owned: starting a graph should immediately hide its
+  // shy implementation layers, even before the first effect node is added.
+  if (graph.hideShyLayers === true && compState.hideShyLayers === false) {
+    ops.push({ op: 'setHideShyLayers', to: true });
+  }
+
   // ---- index the comp by tag, and notice duplicates -----------------------
   //
   // S3: a duplicated layer carries the same comment tag but gets its own native
@@ -203,7 +212,8 @@ export function diff(graph, compState) {
     // which is a frame of the comp showing the wrong thing.
     const text = kind === 'text' && typeof node.text === 'string' ? node.text : undefined;
     ops.push({ op: 'createLayer', node: node.id, kind, name: node.name, props,
-      label: node.label, enabled: node.enabled, order: node.order, text });
+      label: node.label, enabled: node.enabled, shy: node.kind === 'effect',
+      order: node.order, text });
   }
 
   // ---- layers we own that the graph no longer wants -----------------------
@@ -258,6 +268,10 @@ export function diff(graph, compState) {
 
     if (layer.enabled !== undefined && layer.enabled !== node.enabled) {
       ops.push({ op: 'setEnabled', node: node.id, from: layer.enabled, to: node.enabled });
+    }
+
+    if (node.kind === 'effect' && layer.shy === false) {
+      ops.push({ op: 'setShy', node: node.id, from: false, to: true });
     }
 
     if (layer.label !== undefined && layer.label !== node.label) {
