@@ -624,3 +624,22 @@ test('an expression node is never completed from a layer either', async () => {
   assert.deepEqual(graph.nodes.x.props, {}, 'an expression node is not a layer');
   await loop.close();
 });
+
+test('footage import binds layer and project-item identities and settles clean', async () => {
+  const ae = makeAE();
+  const graph = createGraph();
+  addNode(graph, { id: 'plate', kind: 'footage', name: 'plate.mov',
+    props: defaultLayerProps('footage'),
+    source: { kind: 'footage', path: 'D:/shot/plate.mov', itemId: null } });
+
+  const loop = createWriteLoop({ host: ae.host, graph, observeAfterPatch: true });
+  loop.touch('Import plate.mov');
+  const result = await loop.flush();
+  assert.equal(result.status, 'patched');
+  assert.equal(graph.nodes.plate.nativeId, ae.comp.byTag('plate').id);
+  assert.equal(graph.nodes.plate.source.itemId, ae.comp.byTag('plate').source.id);
+
+  const observed = parseCompState(await ae.host.evalScript(readCompCall()));
+  assert.deepEqual(diff(graph, observed).ops, []);
+  await loop.close();
+});

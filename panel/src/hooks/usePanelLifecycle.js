@@ -20,6 +20,7 @@ import {
   readCompCall, parseCompState, newCompDialogCall, parseNewCompDialog,
   graphFilePathFor,
 } from '../../../src/reader.js';
+import { selectFootageCall, parseFootageSelection } from '../../../src/footage.js';
 
 // Browser-only fixture. A live AE comp is never seeded automatically.
 //
@@ -432,6 +433,21 @@ export function usePanelLifecycle() {
     setSelected(node.id);
   }, [commands]);
 
+  const importFootage = useCallback(async (position) => {
+    if (!host.connected || !canEdit) return;
+    host.beginModal();
+    try {
+      const picked = parseFootageSelection(await host.evalScript(selectFootageCall()));
+      if (!picked.selected) return;
+      const node = commands.addFootage(picked.path, picked.name, position?.position || position);
+      setSelected(node.id);
+    } catch (e) {
+      setMessage(e.message);
+    } finally {
+      host.endModal();
+    }
+  }, [host, canEdit, commands]);
+
   const rename = useCallback(() => {
     document.getElementById('ntl-inspector-name')?.focus();
   }, []);
@@ -548,5 +564,5 @@ export function usePanelLifecycle() {
     return locked;
   }, [version, baselineRef]);
 
-  return { textLocked, showEffectControls, graph, version, selected, setSelected, message, setMessage, contextMenu, host, link, startup, drift, storageRef, saveStatus, saveGraph, canEdit, commands, handlePaneContextMenu, closeContextMenu, addEffectNode, addExpressionNode, ping, onGestureStart, onGestureEnd, addLayer, rename, remove, addFx, setBlend, counts, startEmptyGraph, createNewComp, reviewSaved, keepGraph, useAeChanges, playback };
+  return { textLocked, showEffectControls, graph, version, selected, setSelected, message, setMessage, contextMenu, host, link, startup, drift, storageRef, saveStatus, saveGraph, canEdit, commands, handlePaneContextMenu, closeContextMenu, addEffectNode, addExpressionNode, importFootage, ping, onGestureStart, onGestureEnd, addLayer, rename, remove, addFx, setBlend, counts, startEmptyGraph, createNewComp, reviewSaved, keepGraph, useAeChanges, playback };
 }

@@ -19,6 +19,7 @@ import { dirname, join } from 'node:path';
 const JSX = join(dirname(fileURLToPath(import.meta.url)), '..', 'jsx');
 
 let nextId = 500;
+let nextItemId = 2000;
 
 // After Effects is one JavaScript realm; a VM context is a second one, and
 // `value instanceof Array` is false across the boundary. common.jsx uses exactly
@@ -228,6 +229,20 @@ export class FakeLayer {
   }
 }
 
+export class FakeFootageItem {
+  constructor(project, file) {
+    this.project = project;
+    this.id = nextItemId++;
+    this.name = file.name;
+    this.mainSource = { file };
+    this.footageMissing = false;
+  }
+  remove() {
+    this.project._items = this.project._items.filter((item) => item !== this);
+    this.project.revision++;
+  }
+}
+
 export class FakeComp {
   constructor(project, name = 'Shot 01') {
     this.project = project;
@@ -250,6 +265,11 @@ export class FakeComp {
     this.layers = {
       addSolid(color, name) { return self._add(new FakeLayer(self, name, 'solid')); },
       addNull() { return self._add(new FakeLayer(self, 'Null 1', 'null')); },
+      add(source) {
+        const layer = self._add(new FakeLayer(self, source.name, 'footage'));
+        layer.source = source;
+        return layer;
+      },
       addText(text) {
         const layer = self._add(new FakeLayer(self, 'Text', 'text'));
         layer.textDocument.text = text === undefined ? '' : String(text);
@@ -272,7 +292,7 @@ export class FakeComp {
 }
 
 export function makeAE() {
-  const project = { revision: 1 };
+  const project = { revision: 1, _items: [] };
   const undo = { groups: [], open: 0, maxOpen: 0 };
 
   const app = {
@@ -296,6 +316,24 @@ export function makeAE() {
     },
   };
 
+  class FakeFile {
+    constructor(path) {
+      this.fsName = String(path);
+      this.name = this.fsName.split(/[\\/]/).pop();
+      this.displayName = this.name;
+      this.exists = !/missing/i.test(this.fsName);
+    }
+    static openDialog() {
+      return app.nextOpenFile === undefined ? null
+        : (app.nextOpenFile === null ? null : new FakeFile(app.nextOpenFile));
+    }
+  }
+
+  class FakeImportOptions {
+    constructor(file) { this.file = file; this.importAs = null; }
+    canImportAs() { return this.file.exists && !/unsupported/i.test(this.file.fsName); }
+  }
+
   // reader.jsx asks what kind of layer it is holding, with `instanceof`. These
   // were empty classes, so every one of those tests was false and the reader
   // could only ever answer 'footage' - which hid the fact that a text layer's
@@ -317,6 +355,10 @@ export function makeAE() {
     LightLayer,
     TextLayer,
     ShapeLayer,
+    FootageItem: FakeFootageItem,
+    File: FakeFile,
+    ImportOptions: FakeImportOptions,
+    ImportAsType: { FOOTAGE: 'FOOTAGE' },
     PropertyType: { PROPERTY: 'PROPERTY', INDEXED_GROUP: 'INDEXED_GROUP', NAMED_GROUP: 'NAMED_GROUP' },
     BlendingMode: { NORMAL: 5220, MULTIPLY: 5222, SCREEN: 5223, ADD: 5224, LIGHTEN: 5225 },
     Date,
@@ -338,8 +380,16 @@ export function makeAE() {
   // The reader and the writer both find a comp BY NAME when given one, walking
   // app.project.item(i). A fake with no item list would silently exercise only
   // the activeItem path.
-  project.numItems = 1;
-  project.item = (i) => (i === 1 ? comp : null);
+  project._items.push(comp);
+  Object.defineProperty(project, 'numItems', { get: () => project._items.length });
+  project.item = (i) => project._items[i - 1] ?? null;
+  project.importFile = (options) => {
+    if (!options?.file?.exists) throw new Error('cannot import missing file');
+    const item = new FakeFootageItem(project, options.file);
+    project._items.push(item);
+    project.revision++;
+    return item;
+  };
   project.layerByID = (id) => comp._layers.find((l) => l.id === id) ?? null;
 
   for (const file of ['common.jsx', 'reader.jsx', 'patch.jsx', 'select.jsx']) {

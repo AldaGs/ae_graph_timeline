@@ -240,6 +240,13 @@ export function normalizeCompState(payload, { tolerateReadErrors = false } = {})
               : undefined,
           }))
         : undefined,
+      source: l.source && typeof l.source === 'object' ? {
+        kind: l.source.kind || 'footage',
+        itemId: isFiniteNumber(l.source.itemId) ? l.source.itemId : null,
+        name: typeof l.source.name === 'string' ? l.source.name : '',
+        path: typeof l.source.path === 'string' ? l.source.path : null,
+        missing: l.source.missing === true,
+      } : undefined,
     });
   }
 

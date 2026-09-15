@@ -44,6 +44,7 @@ function state({ revision = 10, compId = 1, layers = [] } = {}) {
       parentIndex: null,
       props: l.props ?? { opacity: 100, position: [960, 540] },
       expressions: l.expressions ?? {},
+      source: l.source ?? null,
     })),
   };
 }
@@ -406,4 +407,16 @@ test('drift guard detects effect and blend mode changes', () => {
   assert.equal(r3.drifted, true);
   assert.equal(r3.changes[0].kind, 'effectRemoved');
   assert.ok(r3.blocking.some(c => c.kind === 'effectRemoved'), 'losing a managed effect is blocking drift');
+});
+
+test('footage relinking is visible as source drift', () => {
+  const before = state({ layers: [{ node: 'plate', source: {
+    kind: 'footage', itemId: 5, path: 'D:/old/plate.mov', missing: false,
+  } }] });
+  const after = state({ layers: [{ node: 'plate', source: {
+    kind: 'footage', itemId: 5, path: 'D:/new/plate.mov', missing: false,
+  } }] });
+  const report = compareSnapshots(snapshot(before), snapshot(after));
+  assert.equal(report.changes.some((change) => change.kind === 'sourceChanged'), true);
+  assert.equal(report.blocking.length, 0);
 });

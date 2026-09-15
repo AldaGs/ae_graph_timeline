@@ -111,7 +111,28 @@ function ntlpCreateLayer(ctx, op) {
     // patch that is slow for a bad one.
     var comp = ctx.comp;
     var layer;
-    if (op.kind === 'null') {
+    var importedItem = null;
+    if (op.kind === 'footage') {
+        if (!op.source || !op.source.path) throw ntlpFail('footage layer has no source path');
+        var sourceFile = new File(op.source.path);
+        if (!sourceFile.exists) throw ntlpFail('footage file does not exist: ' + op.source.path);
+        var importOptions = new ImportOptions(sourceFile);
+        if (importOptions.canImportAs && !importOptions.canImportAs(ImportAsType.FOOTAGE)) {
+            throw ntlpFail('file cannot be imported as footage: ' + op.source.path);
+        }
+        importOptions.importAs = ImportAsType.FOOTAGE;
+        importedItem = app.project.importFile(importOptions);
+        if (!importedItem || !(importedItem instanceof FootageItem)) {
+            try { if (importedItem) importedItem.remove(); } catch (badItem) { /* best effort */ }
+            throw ntlpFail('After Effects did not create a footage item');
+        }
+        try {
+            layer = comp.layers.add(importedItem);
+        } catch (addError) {
+            try { importedItem.remove(); } catch (removeError) { /* best effort */ }
+            throw addError;
+        }
+    } else if (op.kind === 'null') {
         layer = comp.layers.addNull();
     } else if (op.kind === 'text') {
         // Created WITH its string, in the same undo group. A layer that had to
@@ -150,6 +171,7 @@ function ntlpCreateLayer(ctx, op) {
     ctx.created++;
     // M4: record the native id so the panel can cache it on the graph node.
     ctx.createdIds[op.node] = layer.id;
+    if (importedItem) ctx.createdSourceIds[op.node] = importedItem.id;
 
     if (op.props) {
         for (var k in op.props) {
@@ -160,7 +182,38 @@ function ntlpCreateLayer(ctx, op) {
             ctx.writes++;
         }
     }
-    return { op: 'deleteLayer', node: op.node };
+    return importedItem
+        ? { op: 'deleteImportedLayer', node: op.node, sourceItemId: importedItem.id }
+        : { op: 'deleteLayer', node: op.node };
+}
+
+function ntlpDeleteImportedLayer(ctx, op) {
+    var layer = ntlpLayer(ctx, op.node);
+    layer.remove();
+    ntlpReindexTag(ctx, op.node);
+
+    var used = false;
+    for (var i = 1; i <= app.project.numItems && !used; i++) {
+        var comp = app.project.item(i);
+        if (!(comp instanceof CompItem)) continue;
+        for (var j = 1; j <= comp.numLayers; j++) {
+            var candidate = comp.layer(j);
+            if (candidate.source && candidate.source.id === op.sourceItemId) {
+                used = true;
+                break;
+            }
+        }
+    }
+    if (!used) {
+        for (var k = 1; k <= app.project.numItems; k++) {
+            var item = app.project.item(k);
+            if (item && item.id === op.sourceItemId) {
+                item.remove();
+                break;
+            }
+        }
+    }
+    return null;
 }
 
 function ntlpDeleteLayer(ctx, op) {
@@ -502,6 +555,7 @@ function ntlpApplyOne(ctx, op) {
     switch (op.op) {
         case 'createLayer':     return ntlpCreateLayer(ctx, op);
         case 'deleteLayer':     return ntlpDeleteLayer(ctx, op);
+        case 'deleteImportedLayer': return ntlpDeleteImportedLayer(ctx, op);
         case 'setName':         return ntlpSetName(ctx, op);
         case 'setProp':         return ntlpSetProp(ctx, op);
         case 'setParent':       return ntlpSetParent(ctx, op);
@@ -591,7 +645,7 @@ function NTL_ApplyPatch(compName, ops, label, expectRevision, expectCompId) {
         $.hiresTimer;
         var scan = ntlrScanTags(comp);
         ctx = { comp: comp, byTag: scan.byTag, counts: scan.counts, byNativeId: scan.byNativeId,
-                props: {}, writes: 0, created: 0, createdIds: {} };
+                props: {}, writes: 0, created: 0, createdIds: {}, createdSourceIds: {} };
         var scanMs = $.hiresTimer / 1000;
 
         // ONE group for the whole patch. S5: the stack holds 99 entries.
@@ -617,6 +671,7 @@ function NTL_ApplyPatch(compName, ops, label, expectRevision, expectCompId) {
             writes: ctx.writes,
             created: ctx.created,
             createdIds: ctx.createdIds,
+            createdSourceIds: ctx.createdSourceIds,
             scanMs: scanMs,
             elapsedMs: $.hiresTimer / 1000,
             revision: app.project.revision,

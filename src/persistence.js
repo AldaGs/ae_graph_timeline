@@ -16,6 +16,11 @@ export function inspectSavedGraph(graph, baseline, current) {
     if (counts.get(id) === 1 && candidate.nodes[id]) {
       const node = candidate.nodes[id];
       node.nativeId = layer.nativeId;
+      if (node.source && layer.source) {
+        node.source.itemId = layer.source.itemId;
+        node.source.path = layer.source.path;
+        node.source.missing = layer.source.missing === true;
+      }
       // M4.8 briefly completed effect nodes from their host null's transform,
       // polluting persisted parameter bags. Reopen has the authoritative effect
       // record in hand, so retain only keys that are real parameters.
@@ -43,6 +48,11 @@ export function parseGraph(text) {
   for (const [id, node] of Object.entries(doc.graph.nodes)) {
     if (id !== node.id || !node.kind || !node.props || !Number.isFinite(node.ui?.x) || !Number.isFinite(node.ui?.y)) throw new Error('Invalid graph node: ' + id);
     if (node.parent && !doc.graph.nodes[node.parent]) throw new Error('Missing parent: ' + id);
+    if (node.source && (node.source.kind !== 'footage'
+        || (node.source.path !== null && typeof node.source.path !== 'string')
+        || (node.source.itemId !== null && !Number.isFinite(node.source.itemId)))) {
+      throw new Error('Invalid graph source: ' + id);
+    }
   }
   for (const [id, edge] of Object.entries(doc.graph.edges)) {
     if (id !== edge.id || !doc.graph.nodes[edge.from] || !doc.graph.nodes[edge.to]

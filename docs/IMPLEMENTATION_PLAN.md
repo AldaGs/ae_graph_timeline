@@ -332,12 +332,13 @@ editing, in addition to the previously open unmanaged-layer workflow.
 - [x] Context-menu creation coordinates account for pan and zoom.
 - [x] Collapsible/resizable outliner, theme tokens and visible focus styles.
 - [ ] Full installed-effect catalogue, unmanaged-layer Import/Ignore workflow.
-- [ ] Import file-backed footage into AE and create a source-backed managed node.
+- [ ] Import file-backed footage into AE and create a source-backed managed node
+      — offline implementation complete; installed AE acceptance open.
 - [ ] Monaco editor for the selected expression, with one commit per edit session
       and AE runtime-error feedback.
 - [ ] Keyboard connection authoring and real AE usability acceptance matrix.
 
-Current repository gate: 241 core tests and 10 panel tests pass, alongside JSX
+Current repository gate: 250 core tests and 10 panel tests pass, alongside JSX
 preflight and the production panel/host build. The completed inspector coverage
 includes finite-number, range, vector-dimension and linked-property refusals.
 The new footage, adoption, Monaco, keyboard-connection, and installed-effect

@@ -102,6 +102,39 @@ test('a created layer is tagged in the same undo group that created it', () => {
   assert.equal(ae.undo.groups.length, 1);
 });
 
+test('source-backed footage creation imports one item and returns both identities', () => {
+  const ae = makeAE();
+  const receipt = run(ae, [{ op: 'createLayer', node: 'plate', kind: 'footage',
+    name: 'plate.mov', props: {}, source: { kind: 'footage', path: 'D:/shot/plate.mov' } }]);
+
+  const layer = ae.comp.byTag('plate');
+  assert.ok(layer);
+  assert.equal(layer.source.name, 'plate.mov');
+  assert.equal(receipt.createdIds.plate, layer.id);
+  assert.equal(receipt.createdSourceIds.plate, layer.source.id);
+  assert.equal(receipt.inverse[0].op, 'deleteImportedLayer');
+});
+
+test('missing or unsupported footage leaves no layer or project item', () => {
+  for (const path of ['D:/missing.mov', 'D:/unsupported.xyz']) {
+    const ae = makeAE();
+    assert.throws(() => run(ae, [{ op: 'createLayer', node: 'plate', kind: 'footage',
+      name: 'plate', props: {}, source: { kind: 'footage', path } }]));
+    assert.equal(ae.comp.byTag('plate'), undefined);
+    assert.equal(ae.project.numItems, 1);
+  }
+});
+
+test('rolling back footage creation removes its unused imported item', () => {
+  const ae = makeAE();
+  const receipt = run(ae, [{ op: 'createLayer', node: 'plate', kind: 'footage',
+    name: 'plate.mov', props: {}, source: { kind: 'footage', path: 'D:/shot/plate.mov' } }]);
+  const rollback = parseReceipt(ae.eval(rollbackCall(receipt)));
+  assert.equal(rollback.ok, true);
+  assert.equal(ae.comp.byTag('plate'), undefined);
+  assert.equal(ae.project.numItems, 1);
+});
+
 test('an expression edge is written, and its tag makes it ours', () => {
   const ae = makeAE();
   ae.comp.add('Source', { comment: tagFor('a') });

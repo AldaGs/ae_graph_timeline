@@ -76,6 +76,15 @@ test('a node with no layer is created', () => {
   assert.equal(opsOf(r, 'createLayer')[0].node, 'n1');
 });
 
+test('a footage node carries its source into the create operation', () => {
+  const g = createGraph();
+  addNode(g, { id: 'plate', kind: 'footage', name: 'plate.mov', props: {},
+    source: { kind: 'footage', path: 'D:/shot/plate.mov', itemId: null } });
+  const create = opsOf(diff(g, comp([])), 'createLayer')[0];
+  assert.equal(create.kind, 'footage');
+  assert.equal(create.source.path, 'D:/shot/plate.mov');
+});
+
 test('effect controller hosts are created shy and older hosts are repaired', () => {
   const g = createGraph();
   addNode(g, { id: 'fx', kind: 'effect', name: 'Fill', matchName: 'ADBE Fill', props: {} });

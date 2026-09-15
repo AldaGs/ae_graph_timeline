@@ -39,6 +39,18 @@ test('visible graph commands redraw and touch the loop once', () => {
   assert.equal(s.graph.nodes[layer.id].enabled, false);
 });
 
+test('footage import creates a source-backed node through the command boundary', () => {
+  const s = setup();
+  const node = s.commands.addFootage('D:/shot/plate.mov', 'plate.mov', { x: 12, y: 34 });
+  assert.equal(node.kind, 'footage');
+  assert.deepEqual(node.source, {
+    kind: 'footage', itemId: null, path: 'D:/shot/plate.mov',
+    importAs: 'footage', missing: false,
+  });
+  assert.deepEqual(node.ui, { x: 12, y: 34 });
+  assert.equal(s.touches.length, 1);
+});
+
 test('expression edits touch without rebuilding the controlled node', () => {
   const s = setup();
   const node = s.commands.addExpressionNode({ x: 0, y: 0 });

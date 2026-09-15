@@ -48,6 +48,22 @@ export function createGraphCommands({ graph, getLoop, redraw, setSelected = () =
       return commit(`Add ${node.name}`, node);
     },
 
+    addFootage(path, name, position) {
+      if (typeof path !== 'string' || !path.length) throw new Error('Footage needs a file path');
+      const id = nextNodeId(graph);
+      const count = Object.keys(graph.nodes).length;
+      const node = addNode(graph, {
+        id, kind: 'footage', name: name || `Footage ${id}`,
+        props: defaultLayerProps('footage', getCompSize() || {}),
+        source: { kind: 'footage', itemId: null, path, importAs: 'footage' },
+        ui: {
+          x: position?.x ?? (40 + (count % 4) * 300),
+          y: position?.y ?? (40 + Math.floor(count / 4) * 260),
+        },
+      });
+      return commit(`Import ${node.name}`, node);
+    },
+
     addEffectNode(matchName, name, props = {}, position = { x: 40, y: 40 }) {
       const id = nextNodeId(graph);
       const node = addNode(graph, {

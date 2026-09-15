@@ -213,7 +213,7 @@ export function diff(graph, compState) {
     const text = kind === 'text' && typeof node.text === 'string' ? node.text : undefined;
     ops.push({ op: 'createLayer', node: node.id, kind, name: node.name, props,
       label: node.label, enabled: node.enabled, shy: node.kind === 'effect',
-      order: node.order, text });
+      order: node.order, text, source: node.source || undefined });
   }
 
   // ---- layers we own that the graph no longer wants -----------------------

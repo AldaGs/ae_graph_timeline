@@ -21,6 +21,7 @@ import {
   clampCompFrame, clampFrame, parseTransportState, setCurrentFrameCall, transportStateCall,
   TransportError,
 } from '../src/transport.js';
+import { selectFootageCall, parseFootageSelection } from '../src/footage.js';
 
 // ---- helpers ---------------------------------------------------------------
 
@@ -118,6 +119,15 @@ test('a comp name with quotes or backslashes cannot break out of the call', () =
 
 test('the new-comp call opens the native AE dialog', () => {
   assert.equal(newCompDialogCall(), 'NTL_ShowNewCompDialog()');
+});
+
+test('the footage picker distinguishes cancel from a selected native path', () => {
+  const ae = makeAE();
+  assert.deepEqual(parseFootageSelection(ae.eval(selectFootageCall())), { selected: false });
+  ae.app.nextOpenFile = 'D:/shot/plate.mov';
+  assert.deepEqual(parseFootageSelection(ae.eval(selectFootageCall())), {
+    selected: true, path: 'D:/shot/plate.mov', name: 'plate.mov',
+  });
 });
 
 test('the native new-comp dialog result is validated, including cancel', () => {
@@ -317,6 +327,19 @@ test('the reader carries shy layer and composition visibility state', () => {
   const state = parseCompState(ae.eval(readCompCall()));
   assert.equal(state.layers[0].shy, true);
   assert.equal(state.hideShyLayers, true);
+});
+
+test('the reader carries file-backed source identity for managed footage', () => {
+  const ae = makeAE();
+  const item = ae.project.importFile(new ae.ctx.ImportOptions(new ae.ctx.File('D:/shot/plate.mov')));
+  const layer = ae.comp.layers.add(item);
+  layer.comment = tagFor('plate');
+
+  const state = parseCompState(ae.eval(readCompCall()));
+  assert.deepEqual(state.layers[0].source, {
+    kind: 'footage', itemId: item.id, name: 'plate.mov',
+    path: 'D:/shot/plate.mov', missing: false,
+  });
 });
 
 // ---- M4.9: the project's own path, so the graph's sidecar can follow it ----

@@ -101,6 +101,7 @@ function layerFacts(layer) {
     // indistinguishable from one the user had set back to normal.
     blendMode: layer.blendMode ?? null, // M2
     label: layer.label ?? null,
+    source: layer.source ? { ...layer.source } : null,
     props: { ...(layer.props || {}) },
     expressions: { ...(layer.expressions || {}) },
     // M2: effects array, keeping only what matters for structural identity
@@ -125,6 +126,7 @@ function layerDigest(f) {
     f.parentTag ?? '~',
     f.blendMode ?? '~',
     canonicalValue(f.label),
+    canonicalMap(f.source),
     canonicalMap(f.props),
     canonicalMap(f.expressions),
     canonicalEffects(f.effects),
@@ -239,6 +241,12 @@ export function compareSnapshots(before, after) {
       changes.push({ kind, node: nodeId, field,
         from: was.facts[field], to: now.facts[field],
         message: `${nodeId}.${field}: ${canonicalValue(was.facts[field])} -> ${canonicalValue(now.facts[field])}` });
+    }
+
+    if (canonicalMap(was.facts.source) !== canonicalMap(now.facts.source)) {
+      changes.push({ kind: 'sourceChanged', node: nodeId,
+        from: was.facts.source, to: now.facts.source,
+        message: `${nodeId}.source changed in After Effects` });
     }
 
     for (const prop of union(was.facts.props, now.facts.props)) {

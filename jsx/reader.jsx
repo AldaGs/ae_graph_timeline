@@ -227,6 +227,25 @@ function ntlrReadComp(comp, includeEffects) {
             } catch (eShy) {
                 ntlrNote('shy', eShy);
             }
+            // Only file-backed sources carry a path. Solids also have a
+            // FootageItem source in AE, but their SolidSource has no file and
+            // must not be mistaken for imported footage.
+            try {
+                var source = layer.source;
+                var sourceFile = source && source.mainSource ? source.mainSource.file : null;
+                var missingPath = source && source.mainSource ? source.mainSource.missingFootagePath : null;
+                if (source && (sourceFile || missingPath)) {
+                    rec.source = {
+                        kind: 'footage',
+                        itemId: source.id,
+                        name: source.name,
+                        path: sourceFile ? sourceFile.fsName : missingPath,
+                        missing: source.footageMissing ? true : false
+                    };
+                }
+            } catch (eSource) {
+                ntlrNote('source', eSource);
+            }
             // R1: label and blend mode are READ, not assumed. The diff only
             // emits a write for a field it observed, so a field the reader
             // omitted was one the inspector could change forever while After
@@ -345,6 +364,19 @@ function NTL_ReadComp(compName, includeEffects, compId) {
         var state = ntlrReadComp(comp, includeEffects ? true : false);
         state.elapsedMs = $.hiresTimer / 1000;
         return ntlrVal(state);
+    } catch (e) {
+        return ntlrVal({ ok: false, message: String(e && (e.message || e)), line: e && e.line });
+    }
+}
+
+// Native single-file picker. It chooses a path but imports nothing; the graph
+// mutation that follows is what authorizes the guarded patch to import it.
+function NTL_SelectFootageFile() {
+    try {
+        var file = File.openDialog('Import Footage', undefined, false);
+        if (!file) return ntlrVal({ ok: true, selected: false });
+        return ntlrVal({ ok: true, selected: true, path: file.fsName,
+                         name: file.name || file.displayName || file.fsName });
     } catch (e) {
         return ntlrVal({ ok: false, message: String(e && (e.message || e)), line: e && e.line });
     }

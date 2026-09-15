@@ -84,6 +84,7 @@ export function captureCompState(graph, compState) {
     node.enabled = layer.enabled !== false;
     node.label = layer.label ?? node.label;
     node.blendMode = layer.blendMode ?? node.blendMode;
+    if (node.source && layer.source) node.source = clone(layer.source);
     if (node.kind === 'effect') {
       const effect = layer.effects?.[0];
       if (effect?.matchName === node.matchName) {
@@ -116,6 +117,7 @@ export function captureCompState(graph, compState) {
       id, nativeId: layer.nativeId, kind: layer.kind, name: layer.name,
       parent: layer.parentTag, enabled: layer.enabled, label: layer.label,
       blendMode: layer.blendMode, props: clone(layer.props || {}),
+      source: layer.source ? clone(layer.source) : null,
       effects: (layer.effects || []).map((effect) => ({
         matchName: effect.matchName, name: effect.name, params: clone(effect.params || {}),
       })),

@@ -26,7 +26,7 @@ import { readCompCall, parseCompState, ReadError } from './reader.js';
 import { diff } from './diff.js';
 import { applyPatchCall, parseReceipt, rollbackCall, PatchError } from './patch.js';
 import { createDriftGuard, revisionCall, parseRevision, DriftError } from './drift.js';
-import { bindNativeId, nodeIdFromTag, desiredExpressions, TRANSFORM_PROPS } from './graph.js';
+import { bindNativeId, bindSourceItemId, nodeIdFromTag, desiredExpressions, TRANSFORM_PROPS } from './graph.js';
 
 export class LoopError extends Error {
   constructor(message, detail) {
@@ -209,6 +209,11 @@ export function createWriteLoop({
     if (receipt.createdIds) {
       for (const [nodeId, nativeId] of Object.entries(receipt.createdIds)) {
         bindNativeId(graph, nodeId, nativeId);
+      }
+    }
+    if (receipt.createdSourceIds) {
+      for (const [nodeId, itemId] of Object.entries(receipt.createdSourceIds)) {
+        bindSourceItemId(graph, nodeId, itemId);
       }
     }
 

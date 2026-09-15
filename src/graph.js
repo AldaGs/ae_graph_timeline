@@ -197,6 +197,16 @@ export function addNode(graph, node) {
       name: e.name || e.matchName,
       params: { ...(e.params || {}) },
     })),
+    // Source-backed layers keep AE's project item id as a fast live handle and
+    // the file path as a recovery hint. AE remains responsible for footage
+    // interpretation and relinking.
+    source: node.source ? {
+      kind: node.source.kind || 'footage',
+      itemId: Number.isFinite(node.source.itemId) ? node.source.itemId : null,
+      path: typeof node.source.path === 'string' ? node.source.path : null,
+      importAs: node.source.importAs || 'footage',
+      missing: node.source.missing === true,
+    } : null,
     // Where the node sits on the canvas. It lives in the MODEL, not in the
     // panel, because M6 has to persist it: a graph that reopened with every node
     // stacked at the origin would have lost the thing the user spent the most
@@ -213,6 +223,13 @@ export function bindNativeId(graph, nodeId, nativeId) {
   const node = graph.nodes[nodeId];
   if (!node) return null;
   node.nativeId = nativeId;
+  return node;
+}
+
+export function bindSourceItemId(graph, nodeId, itemId) {
+  const node = graph.nodes[nodeId];
+  if (!node?.source) return null;
+  node.source.itemId = itemId;
   return node;
 }
 
@@ -358,6 +375,7 @@ export function hydrateFromComp(graph, compState) {
         label: layer.label,
         enabled: layer.enabled,
         text: layer.text,
+        source: layer.source,
         props: { ...layer.props },
         // We do not recover effects here since they belong to effect nodes,
         // which are a bigger challenge for M6 persistence.

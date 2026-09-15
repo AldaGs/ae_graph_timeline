@@ -14,7 +14,7 @@ const APPLY_FN = 'NTL_ApplyPatch';
 // Ops jsx/patch.jsx implements. An op outside this set is refused HERE rather
 // than discovered in After Effects, where the failure costs a round trip.
 export const SUPPORTED_OPS = new Set([
-  'createLayer', 'deleteLayer', 'setName', 'setProp',
+  'createLayer', 'deleteLayer', 'deleteImportedLayer', 'setName', 'setProp',
   'setParent', 'setExpression', 'clearExpression',
   'addEffect', 'removeEffect', 'setEffect', 'setBlendMode',
   'linkEffectToHost', 'setComment', 'setEnabled', 'setShy',
