@@ -35,8 +35,7 @@ html, body, #root {
 .ntl-inspector details { margin: 9px 0; }
 .ntl-inspector details button { margin: 4px 3px 4px 0; }
 button:focus-visible, input:focus-visible, select:focus-visible, summary:focus-visible { outline: 2px solid var(--ntl-edge); outline-offset: 2px; }
-.ntl-outliner { --bg-canvas: var(--ntl-panel); --border-panel: var(--ntl-line); --text-dim: var(--ntl-dim); --bg-panel: var(--ntl-bg); --text-main: var(--ntl-text); resize: horizontal; overflow: auto; min-width: 160px; max-width: 40%; }
-.ntl-outliner-row.is-selected { background: #32445b; }
+.ntl-outliner { resize: horizontal; min-width: 180px; max-width: 45%; }
 
 /* ------------------------------------------------------------------ the bar */
 
@@ -50,9 +49,13 @@ button:focus-visible, input:focus-visible, select:focus-visible, summary:focus-v
   flex: 0 0 auto;
 }
 
-.ntl-title { font-weight: 600; letter-spacing: 0.2px; }
-.ntl-actions { display: flex; gap: 6px; }
-.ntl-count { margin-left: auto; color: var(--ntl-dim); }
+/* Nothing in the bar wraps. A narrow panel scrolls its actions instead, because
+   a two-line toolbar eats the canvas and reflows as the user resizes. */
+.ntl-title { font-weight: 600; letter-spacing: 0.2px; white-space: nowrap; flex: 0 0 auto; }
+.ntl-actions { display: flex; gap: 6px; min-width: 0; overflow-x: auto; scrollbar-width: thin; }
+.ntl-actions button { white-space: nowrap; flex: 0 0 auto; }
+.ntl-count { margin-left: auto; color: var(--ntl-dim); white-space: nowrap; flex: 0 0 auto; }
+.ntl-link { white-space: nowrap; flex: 0 0 auto; }
 
 button {
   font: inherit;

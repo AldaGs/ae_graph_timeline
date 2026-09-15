@@ -12,6 +12,7 @@
     "ae": "npm run build && node install.mjs"
   },
   "dependencies": {
+    "lucide-react": "^1.46.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "reactflow": "^11.11.4"

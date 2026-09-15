@@ -48,6 +48,12 @@ export default function Inspector({ graph, selected, commands, editable, onError
         <optgroup label="Compositing">{BLEND_MODES.slice(0, 15).map((mode) => <option key={mode}>{mode}</option>)}</optgroup>
         <optgroup label="Contrast and colour">{BLEND_MODES.slice(15).map((mode) => <option key={mode}>{mode}</option>)}</optgroup>
       </select></label>}
+      {/* An effect node has no transform of its own - the host null it lives on
+          does, and that null is machinery, not something to edit. What
+          identifies it is its display name and AE's match name. */}
+      {node.kind === 'effect' && <label>Match name
+        <input aria-label="Effect match name" value={node.matchName || ''} readOnly
+          title="After Effects' stable internal name for this effect" /></label>}
       {/* Not gated on `layer`: an effect node's parameters live in `props` too,
           and while this was layer-only they were readable on the canvas and
           editable nowhere. */}
@@ -58,9 +64,10 @@ export default function Inspector({ graph, selected, commands, editable, onError
       {layer && <details id="ntl-inspector-effects"><summary>Add effect</summary>
         <input aria-label="Search effects" placeholder="Search effects…" value={search} onChange={(e) => setSearch(e.target.value)} />
         {EFFECTS.filter((fx) => fx.name.toLowerCase().includes(search.toLowerCase())).map((fx) => <button key={fx.matchName} onClick={() => add(fx)}>{fx.name}</button>)}
-        <details><summary>Advanced match name</summary><input aria-label="Effect match name" value={raw} onChange={(e) => setRaw(e.target.value)} /><button onClick={() => add({ matchName: raw.trim(), name: raw.trim() })}>Add</button></details>
+        <details><summary>Advanced match name</summary><input aria-label="New effect match name" value={raw} onChange={(e) => setRaw(e.target.value)} /><button onClick={() => add({ matchName: raw.trim(), name: raw.trim() })}>Add</button></details>
       </details>}
       {node.kind === 'effect' && !hasParams && <p>This effect has no parameters in the graph yet. Add one by wiring a value into it.</p>}
+      {node.kind === 'effect' && <p className="ntl-inspector-note">Lives on a host null in After Effects. That layer's transform belongs to the machinery, not to this node.</p>}
       <button id="ntl-inspector-delete" onClick={() => setConfirmDelete(true)}>Delete node…</button>
       {confirmDelete && <div role="alert"><p>Delete {node.name} and its connections? AE layer deletion removes its animation too.</p><button onClick={() => { commands.remove(node.id); onError('Deleted node. Use AE Undo to restore a synchronized layer.'); }}>Delete</button><button onClick={() => setConfirmDelete(false)}>Cancel</button></div>}
     </fieldset>

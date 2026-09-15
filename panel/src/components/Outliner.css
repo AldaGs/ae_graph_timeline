@@ -1,89 +1,203 @@
+/* The outliner, read as Blender reads one: a tight tree with indent guides, a
+   disclosure triangle, a type icon, the name, and the toggles pinned right.
+
+   Sizes are deliberately small. This sits inside After Effects, next to AE's own
+   timeline, and a panel with web-sized rows would read as a different
+   application bolted on. */
+
 .ntl-outliner {
   position: absolute;
   top: 10px;
   right: 10px;
-  width: 220px;
-  background: var(--bg-canvas);
-  border: 1px solid var(--border-panel);
+  width: 236px;
+  background: var(--ntl-panel, #232323);
+  border: 1px solid var(--ntl-line, #3a3a3a);
   border-radius: 4px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
   z-index: 1000;
   display: flex;
   flex-direction: column;
   max-height: calc(100% - 60px);
+  overflow: hidden;
 }
 
-.ntl-outliner-header {
-  padding: 6px 10px;
-  font-size: 11px;
+.ntl-out-title {
+  padding: 5px 9px;
+  font-size: 10px;
   font-weight: 600;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: var(--text-dim);
-  border-bottom: 1px solid var(--border-panel);
-  background: var(--bg-panel);
-  border-top-left-radius: 3px;
-  border-top-right-radius: 3px;
+  color: var(--ntl-dim, #8a8a8a);
+  background: var(--ntl-bg, #1c1c1c);
+  border-bottom: 1px solid var(--ntl-line, #3a3a3a);
+  flex: 0 0 auto;
 }
 
-.ntl-outliner-list {
-  overflow-y: auto;
-  padding: 4px 0;
+.ntl-out-list {
+  overflow: auto;
+  padding: 2px 0 4px;
+  flex: 1 1 auto;
 }
 
-.ntl-outliner-row {
+/* ---------------------------------------------------------------- the row */
+
+.ntl-out-row {
+  --row-indent: calc(var(--depth, 0) * 13px);
+  position: relative;
   display: flex;
   align-items: center;
-  padding: 4px 8px;
-  cursor: grab;
+  gap: 4px;
+  height: 20px;
+  padding: 0 4px 0 2px;
   user-select: none;
-  gap: 8px;
 }
 
-.ntl-outliner-row:active {
-  cursor: grabbing;
+.ntl-out-row:hover { background: rgba(255, 255, 255, 0.045); }
+
+/* Blender highlights the selected row across its full width, with the name
+   brightened rather than the background shouting. */
+.ntl-out-row.is-selected { background: rgba(91, 157, 217, 0.22); }
+.ntl-out-row.is-selected .ntl-out-name { color: #fff; }
+
+.ntl-out-row.is-comp,
+.ntl-out-row.is-unwired,
+.ntl-out-row.is-logic {
+  background: rgba(255, 255, 255, 0.035);
+  border-bottom: 1px solid var(--ntl-line, #3a3a3a);
+  border-top: 1px solid var(--ntl-line, #3a3a3a);
+  height: 22px;
+  margin-bottom: 1px;
 }
 
-.ntl-outliner-row:hover {
-  background: var(--bg-panel);
-}
+.ntl-out-row.is-comp .ntl-out-name,
+.ntl-out-row.is-unwired .ntl-out-name,
+.ntl-out-row.is-logic .ntl-out-name { font-weight: 600; }
 
-.ntl-outliner-label {
-  width: 12px;
-  height: 12px;
+/* A hidden layer is dimmed rather than removed - the row still has to be
+   clickable, and its eye is how you get it back. */
+.ntl-out-row.is-hidden .ntl-out-name,
+.ntl-out-row.is-hidden .ntl-out-icon { opacity: 0.42; }
+
+.ntl-out-row.is-dragging { opacity: 0.45; }
+
+.ntl-out-row[draggable='true'] { cursor: grab; }
+.ntl-out-row[draggable='true']:active { cursor: grabbing; }
+
+/* The drop line, above or below whichever half the pointer is in. */
+.ntl-out-row.is-drop-before::after,
+.ntl-out-row.is-drop-after::after {
+  content: '';
+  position: absolute;
+  left: var(--row-indent);
+  right: 0;
+  height: 2px;
+  background: var(--ntl-edge, #5b9dd9);
+  pointer-events: none;
+}
+.ntl-out-row.is-drop-before::after { top: -1px; }
+.ntl-out-row.is-drop-after::after { bottom: -1px; }
+
+/* -------------------------------------------------------- indent and twisty */
+
+/* One element carries the whole indent, and draws the guide line at its right
+   edge - the thing that makes a deep tree readable at 20px a row. */
+.ntl-out-indent {
+  flex: 0 0 auto;
+  width: var(--row-indent);
+  align-self: stretch;
+  border-right: 1px solid rgba(255, 255, 255, 0.07);
+  box-sizing: content-box;
+}
+.ntl-out-row.is-comp .ntl-out-indent,
+.ntl-out-row.is-unwired .ntl-out-indent,
+.ntl-out-row.is-logic .ntl-out-indent { border-right: none; }
+
+.ntl-out-twist {
+  flex: 0 0 auto;
+  width: 14px;
+  height: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: none;
   border-radius: 2px;
-  flex-shrink: 0;
+  background: transparent;
+  color: var(--ntl-dim, #8a8a8a);
   cursor: pointer;
-  border: 1px solid rgba(255, 255, 255, 0.2);
 }
+.ntl-out-twist:hover { color: var(--ntl-text, #d6d6d6); background: rgba(255, 255, 255, 0.08); }
+.ntl-out-twist.is-empty { cursor: default; }
 
-.ntl-outliner-label:hover {
-  filter: brightness(1.2);
+/* ------------------------------------------------------------ icon and name */
+
+.ntl-out-icon {
+  flex: 0 0 auto;
+  color: var(--ntl-dim, #8a8a8a);
 }
+.ntl-out-row.is-comp .ntl-out-icon,
+.ntl-out-row.is-logic .ntl-out-icon { color: var(--ntl-text, #d6d6d6); }
+.ntl-out-row.is-unwired .ntl-out-icon { color: #70b978; }
+.ntl-out-row.is-effect .ntl-out-icon { color: #70b978; }
+.ntl-out-row.is-expression .ntl-out-icon { color: var(--ntl-edge, #5b9dd9); }
+.ntl-out-row.is-selected .ntl-out-icon { color: var(--ntl-text, #d6d6d6); }
 
-.ntl-outliner-name {
-  flex-grow: 1;
-  font-size: 12px;
+.ntl-out-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  font: inherit;
+  font-size: 11px;
+  text-align: left;
+  color: var(--ntl-text, #d6d6d6);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  color: var(--text-main);
-}
-
-.ntl-outliner-eye {
-  background: transparent;
-  border: none;
-  color: var(--text-dim);
   cursor: pointer;
-  font-size: 12px;
-  padding: 2px 4px;
+}
+
+.ntl-out-count {
+  flex: 0 0 auto;
+  color: var(--ntl-dim, #8a8a8a);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------------------------------------------------------------- toggles */
+
+.ntl-out-swatch {
+  flex: 0 0 auto;
+  width: 9px;
+  height: 14px;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.18);
   border-radius: 2px;
+  cursor: pointer;
 }
+.ntl-out-swatch:hover { filter: brightness(1.3); }
+.ntl-out-swatch:disabled { cursor: default; opacity: 0.5; }
 
-.ntl-outliner-eye:hover {
-  background: rgba(255, 255, 255, 0.1);
-  color: var(--text-main);
+.ntl-out-toggle {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: none;
+  border-radius: 2px;
+  background: transparent;
+  color: var(--ntl-text, #d6d6d6);
+  cursor: pointer;
 }
+.ntl-out-toggle[aria-pressed='false'] { color: var(--ntl-dim, #8a8a8a); }
+.ntl-out-toggle:hover { background: rgba(255, 255, 255, 0.1); }
+.ntl-out-toggle:disabled { cursor: default; opacity: 0.5; background: transparent; }
 
-.ntl-outliner-eye.is-on {
-  color: var(--text-main);
-}
+.ntl-out-row:focus-within { outline: 1px solid rgba(91, 157, 217, 0.5); outline-offset: -1px; }

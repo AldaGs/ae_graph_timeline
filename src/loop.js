@@ -233,7 +233,12 @@ export function createWriteLoop({
         // this, a created node carries fewer properties than the same node
         // rebuilt by hydrateFromComp, the inspector renders fewer editors for
         // it, and setNodeProperty refuses the ones it did not render.
-        if (created.has(id)) {
+        // Layer nodes only. An effect node's `props` are its effect PARAMETERS,
+        // not a transform: the reconciler gives it a host null to live on, and
+        // filling that null's transforms in here put position and opacity into
+        // the parameter bag. The diff then sent them to AE as effect params,
+        // never matched, and re-added the effect on every single pass.
+        if (created.has(id) && node.kind !== 'effect' && node.kind !== 'expression') {
           for (const prop of TRANSFORM_PROPS) {
             if (node.props[prop] !== undefined) continue;
             if (layer.props[prop] === undefined || driven[`${id}|${prop}`]) continue;

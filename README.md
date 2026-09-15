@@ -42,12 +42,13 @@ two halves that talk to AE:
 | `src/diff.js` | graph + comp state → an ordered patch. Pure; no I/O |
 | `src/reader.js` · `jsx/reader.jsx` | the read half. Read-only, revision-stamped, refuses a partial read |
 | `src/patch.js` · `jsx/patch.jsx` | the write half. One undo group, stops on failure, returns an inverse for rollback |
+| `src/outline.js` | the outliner's tree: nested by parent, walked depth-first into the AE stacking order |
 | `src/select.js` · `jsx/select.jsx` | the selection bridge: a node selects its layer, so AE's own Effect Controls and Properties panels follow. View state only — no undo entry, no revision movement |
 | `src/drift.js` | the drift guard: a 2.3 µs gate, then a digest, then a compare that says *where* |
 | `src/loop.js` | the write loop: mutate the graph, and AE follows — one undo entry per gesture |
 
 ```bash
-npm test        # 186 offline tests — no After Effects required
+npm test        # 199 offline tests — no After Effects required
 npm run preflight   # ES3 pre-flight on the .jsx files
 ```
 

@@ -4,7 +4,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { createGraphCommands } from '../graphCommands.js';
 import { createHost } from '../bridge/cep.js';
-import { createGraph, addNode, hydrateFromComp, replaceGraph } from '../../../src/graph.js';
+import {
+  createGraph, addNode, defaultLayerProps, hydrateFromComp, replaceGraph,
+} from '../../../src/graph.js';
 import { diff } from '../../../src/diff.js';
 import { revisionCall, parseRevision, compareSnapshots, snapshot } from '../../../src/drift.js';
 import { captureCompState, classifyDrift } from '../../../src/reconcile.js';
@@ -18,15 +20,25 @@ import {
 } from '../../../src/reader.js';
 
 // Browser-only fixture. A live AE comp is never seeded automatically.
+//
+// It carries a parent, an inline effect, a standalone effect node and an
+// expression node on purpose: those are the four shapes the outliner has to
+// draw, and a flat fixture would let the tree regress unnoticed in the one
+// place it can be looked at without After Effects.
 function seedGraph(graph) {
-  addNode(graph, { id: 'n1', name: 'Background', kind: 'solid',
-    props: { position: [960, 540], scale: [100, 100], opacity: 100 }, ui: { x: 40, y: 40 } });
-  addNode(graph, { id: 'n2', name: 'Card', kind: 'solid',
-    props: { position: [960, 540], scale: [100, 100], opacity: 100 },
+  graph.compName = 'Browser Preview';
+  addNode(graph, { id: 'n1', name: 'Background', kind: 'solid', order: 1,
+    props: defaultLayerProps('solid'), ui: { x: 40, y: 40 } });
+  addNode(graph, { id: 'n3', name: 'Controller', kind: 'null', order: 2,
+    props: defaultLayerProps('null'), ui: { x: 360, y: 300 } });
+  addNode(graph, { id: 'n2', name: 'Card', kind: 'solid', order: 3, parent: 'n3',
+    props: defaultLayerProps('solid'),
     effects: [{ matchName: 'ADBE Fill', name: 'Fill', params: { 'ADBE Fill-0002': [1, 0.5, 0, 1] } }],
     ui: { x: 360, y: 40 } });
-  addNode(graph, { id: 'n3', name: 'Controller', kind: 'null',
-    props: { position: [960, 540], rotation: 0 }, ui: { x: 360, y: 300 } });
+  addNode(graph, { id: 'n4', name: 'Title', kind: 'text', order: 4, parent: 'n3',
+    props: defaultLayerProps('text'), ui: { x: 700, y: 40 } });
+  addNode(graph, { id: 'n5', name: 'Wiggle', kind: 'expression',
+    expression: 'wiggle(2, 10)', ui: { x: 40, y: 320 } });
   return graph;
 }
 

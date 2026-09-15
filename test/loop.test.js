@@ -582,3 +582,45 @@ test('the comp frame, not 1920x1080, decides where a new layer is centred', () =
   // how a node acquires a property the diff can never satisfy.
   assert.deepEqual(Object.keys(defaultLayerProps('camera')).sort(), ['position', 'rotation']);
 });
+
+test('an effect node keeps its parameters, and never acquires a transform', async () => {
+  // The reconciler gives an effect node a host null to live on (by design), but
+  // an effect node's `props` are its effect PARAMETERS. Completing a created
+  // node from the layer AE made put that null's position and opacity into the
+  // parameter bag; the diff then sent them to AE as effect params, never
+  // matched them, and re-added the effect on every pass - and the inspector
+  // and the canvas showed transform properties on a thing that has none.
+  const ae = makeAE();
+  const graph = createGraph();
+  addNode(graph, { id: 'n4', kind: 'effect', name: 'Gaussian Blur n4',
+    matchName: 'ADBE Gaussian Blur 2', props: { 'ADBE Gaussian Blur 2-0001': 10 } });
+
+  const loop = createWriteLoop({ host: ae.host, graph, observeAfterPatch: true, includeEffects: true });
+  loop.touch();
+  await loop.flush();
+  assert.deepEqual(Object.keys(graph.nodes.n4.props), ['ADBE Gaussian Blur 2-0001']);
+
+  // And it settles: a second pass adds nothing, which is what the polluted
+  // parameter bag made impossible.
+  loop.touch();
+  await loop.flush();
+  const after = parseCompState(await ae.host.evalScript(readCompCall({ includeEffects: true })));
+  assert.deepEqual(diff(graph, after).ops, []);
+
+  // The host null it lives on is real, and carries the effect.
+  const host = ae.comp.byTag('n4');
+  assert.equal(host.effectParade.numProperties, 1);
+  assert.equal(host.effectParade.property(1).matchName, 'ADBE Gaussian Blur 2');
+  await loop.close();
+});
+
+test('an expression node is never completed from a layer either', async () => {
+  const ae = makeAE();
+  const graph = createGraph();
+  addNode(graph, { id: 'x', kind: 'expression', name: 'Expr x', expression: 'value;' });
+  const loop = createWriteLoop({ host: ae.host, graph, observeAfterPatch: true, includeEffects: true });
+  loop.touch();
+  await loop.flush();
+  assert.deepEqual(graph.nodes.x.props, {}, 'an expression node is not a layer');
+  await loop.close();
+});
