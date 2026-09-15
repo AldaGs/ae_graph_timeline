@@ -236,6 +236,13 @@ export class FakeComp {
     this.height = 1080;
     this.duration = 10;
     this.frameRate = 24;
+    this.frameDuration = 1 / this.frameRate;
+    this.displayStartTime = 0;
+    this.displayStartFrame = 0;
+    this.workAreaStart = 0;
+    this.workAreaDuration = this.duration;
+    this.time = 0;
+    this.dropFrame = false;
     this._layers = [];
     const self = this;
     this.layers = {

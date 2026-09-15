@@ -1,5 +1,6 @@
 import { useGraphPersistence } from './useGraphPersistence.js';
 import { useHostMonitoring } from './useHostMonitoring.js';
+import { useFramePlayback } from './useFramePlayback.js';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { createGraphCommands } from '../graphCommands.js';
@@ -69,6 +70,7 @@ export function usePanelLifecycle() {
   const compFrameRef = useRef({ width: 1920, height: 1080 });
   const { storageRef, baselineRef, saveStatus, setSaveStatus, saveGraph, scheduleSave, flushSave } = useGraphPersistence(graph);
   const canEdit = (!host.connected || startup.state === 'ready') && !drift;
+  const playback = useFramePlayback({ host, startup, activeCompRef, onError: setMessage });
 
   const redraw = useCallback(() => setVersion((v) => v + 1), []);
   const cloneGraph = useCallback(() => JSON.parse(JSON.stringify(graph)), [graph]);
@@ -536,5 +538,5 @@ export function usePanelLifecycle() {
     return locked;
   }, [version, baselineRef]);
 
-  return { textLocked, showEffectControls, graph, version, selected, setSelected, message, setMessage, contextMenu, host, link, startup, drift, storageRef, saveStatus, saveGraph, canEdit, commands, handlePaneContextMenu, closeContextMenu, addEffectNode, addExpressionNode, ping, onGestureStart, onGestureEnd, addLayer, rename, remove, addFx, setBlend, counts, startEmptyGraph, createNewComp, reviewSaved, keepGraph, useAeChanges };
+  return { textLocked, showEffectControls, graph, version, selected, setSelected, message, setMessage, contextMenu, host, link, startup, drift, storageRef, saveStatus, saveGraph, canEdit, commands, handlePaneContextMenu, closeContextMenu, addEffectNode, addExpressionNode, ping, onGestureStart, onGestureEnd, addLayer, rename, remove, addFx, setBlend, counts, startEmptyGraph, createNewComp, reviewSaved, keepGraph, useAeChanges, playback };
 }

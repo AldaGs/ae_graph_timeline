@@ -17,6 +17,10 @@ import {
 import { diff } from '../src/diff.js';
 import { createGraph, addNode, addEdge, tagFor, expressionFor, expressionBody } from '../src/graph.js';
 import { makeAE } from './fake-ae.js';
+import {
+  clampCompFrame, clampFrame, parseTransportState, setCurrentFrameCall, transportStateCall,
+  TransportError,
+} from '../src/transport.js';
 
 // ---- helpers ---------------------------------------------------------------
 
@@ -61,6 +65,48 @@ test('the evalScript call is built with escaped arguments', () => {
   assert.equal(readCompCall({ compName: 'Shot 01', includeEffects: true }),
     'NTL_ReadComp("Shot 01", true, null)');
   assert.equal(readCompCall({ compId: 42 }), 'NTL_ReadComp(null, false, 42)');
+});
+
+test('the transport call stays frame-based at the panel boundary', () => {
+  assert.equal(transportStateCall(42), 'NTL_TransportState(42)');
+  assert.equal(setCurrentFrameCall(42, 12.6), 'NTL_SetCurrentFrame(42, 13)');
+});
+
+test('the transport uses AE display start, work area and frame rate', () => {
+  const ae = makeAE();
+  ae.comp.displayStartFrame = 1001;
+  ae.comp.displayStartTime = 1001 / 24;
+  ae.comp.workAreaStart = 1;
+  ae.comp.workAreaDuration = 3;
+  ae.comp.time = 1.5;
+
+  const beforeRevision = ae.project.revision;
+  const state = parseTransportState(ae.eval(transportStateCall(ae.comp.id)));
+  assert.deepEqual({
+    current: state.currentFrame,
+    start: state.startFrame,
+    end: state.endFrame,
+    workStart: state.workStartFrame,
+    workEnd: state.workEndFrame,
+    fps: state.frameRate,
+  }, { current: 1037, start: 1001, end: 1240, workStart: 1025, workEnd: 1096, fps: 24 });
+
+  const moved = parseTransportState(ae.eval(setCurrentFrameCall(ae.comp.id, 1026)));
+  assert.equal(moved.currentFrame, 1026);
+  assert.ok(Math.abs(ae.comp.time - (25 / 24)) < 1e-12);
+  assert.equal(ae.project.revision, beforeRevision, 'moving the CTI is not a project edit');
+});
+
+test('transport seeks clamp to the comp while playback remains bounded by the work area', () => {
+  const ae = makeAE();
+  ae.comp.workAreaStart = 2;
+  ae.comp.workAreaDuration = 2;
+  const moved = parseTransportState(ae.eval(setCurrentFrameCall(ae.comp.id, 999)));
+  assert.equal(moved.currentFrame, 239);
+  assert.equal(clampFrame(-10, moved), 48);
+  assert.equal(clampCompFrame(-10, moved), 0);
+  assert.throws(() => parseTransportState('{"ok":true,"frameRate":24}'),
+    (e) => e instanceof TransportError && /incomplete/.test(e.message));
 });
 
 test('a comp name with quotes or backslashes cannot break out of the call', () => {

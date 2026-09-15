@@ -405,3 +405,78 @@ function NTL_ProjectIdentity() {
     return ntlrVal({ projectPath: app.project && app.project.file ? app.project.file.fsName : null,
         compId: active && active instanceof CompItem ? active.id : null });
 }
+
+// ------------------------------------------------------- frame transport
+
+// CTI motion is viewer state, not project state: it creates no undo entry and
+// does not move app.project.revision.  Keep it outside the graph reader and
+// writer so playback can never look like a structural edit or drift.
+function ntlrTransportRecord(comp) {
+    var fd = comp.frameDuration;
+    var startFrame;
+    try {
+        // displayStartFrame avoids accumulated floating-point error on comps
+        // with long or negative start timecodes. It is available in modern AE.
+        startFrame = comp.displayStartFrame;
+    } catch (eStart) {
+        startFrame = Math.round(comp.displayStartTime / fd);
+    }
+    if (startFrame === undefined || startFrame === null || !isFinite(startFrame)) {
+        startFrame = Math.round(comp.displayStartTime / fd);
+    }
+
+    var frameCount = Math.max(1, Math.round(comp.duration / fd));
+    var workStartOffset = Math.round(comp.workAreaStart / fd);
+    var workFrameCount = Math.max(1, Math.round(comp.workAreaDuration / fd));
+    var endFrame = startFrame + frameCount - 1;
+    var workStartFrame = startFrame + workStartOffset;
+    var workEndFrame = Math.min(endFrame, workStartFrame + workFrameCount - 1);
+    var currentFrame = startFrame + Math.round(comp.time / fd);
+    currentFrame = Math.max(startFrame, Math.min(endFrame, currentFrame));
+
+    return {
+        ok: true,
+        compId: comp.id,
+        frameRate: comp.frameRate,
+        frameDuration: fd,
+        startFrame: startFrame,
+        endFrame: endFrame,
+        workStartFrame: workStartFrame,
+        workEndFrame: workEndFrame,
+        currentFrame: currentFrame,
+        dropFrame: comp.dropFrame ? true : false
+    };
+}
+
+function NTL_TransportState(compId) {
+    try {
+        var comp = ntlrFindComp(null, compId);
+        var active = app.project && app.project.activeItem;
+        if (!comp || !active || !(active instanceof CompItem) || active.id !== comp.id) {
+            return ntlrVal({ ok: false, message: 'active composition changed' });
+        }
+        return ntlrVal(ntlrTransportRecord(comp));
+    } catch (e) {
+        return ntlrVal({ ok: false, message: String(e && (e.message || e)), line: e && e.line });
+    }
+}
+
+function NTL_SetCurrentFrame(compId, frame) {
+    try {
+        var comp = ntlrFindComp(null, compId);
+        var active = app.project && app.project.activeItem;
+        if (!comp || !active || !(active instanceof CompItem) || active.id !== comp.id) {
+            return ntlrVal({ ok: false, message: 'active composition changed' });
+        }
+        var state = ntlrTransportRecord(comp);
+        var target = Math.round(Number(frame));
+        if (!isFinite(target)) throw new Error('frame must be a finite number');
+        target = Math.max(state.startFrame, Math.min(state.endFrame, target));
+        // Assign from an integer frame every time. Repeated addition of
+        // frameDuration drifts; this conversion does not.
+        comp.time = (target - state.startFrame) * state.frameDuration;
+        return ntlrVal(ntlrTransportRecord(comp));
+    } catch (e) {
+        return ntlrVal({ ok: false, message: String(e && (e.message || e)), line: e && e.line });
+    }
+}

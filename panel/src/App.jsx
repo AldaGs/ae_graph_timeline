@@ -1,8 +1,11 @@
 import SyncPanels from './components/SyncPanels.jsx';
+import { useCallback, useState } from 'react';
 // Presentational shell; lifecycle and host synchronization live in the hook.
 import Canvas from './canvas/Canvas.jsx';
 import Inspector from './components/Inspector.jsx';
 import { Outliner } from './components/Outliner.jsx';
+import PlaybackBar from './components/PlaybackBar.jsx';
+import PanelVisibilityControls from './components/PanelVisibilityControls.jsx';
 import { usePanelLifecycle } from './hooks/usePanelLifecycle.js';
 import './App.css';
 
@@ -14,7 +17,11 @@ const LINK_LABEL = {
 };
 
 export default function App() {
-  const { textLocked, showEffectControls, graph, version, selected, setSelected, message, setMessage, contextMenu, host, link, startup, drift, storageRef, saveStatus, saveGraph, canEdit, commands, handlePaneContextMenu, closeContextMenu, addEffectNode, addExpressionNode, ping, onGestureStart, onGestureEnd, addLayer, rename, remove, addFx, setBlend, counts, startEmptyGraph, createNewComp, reviewSaved, keepGraph, useAeChanges } = usePanelLifecycle();
+  const [inspectorVisible, setInspectorVisible] = useState(true);
+  const [outlinerVisible, setOutlinerVisible] = useState(true);
+  const toggleInspector = useCallback(() => setInspectorVisible((visible) => !visible), []);
+  const toggleOutliner = useCallback(() => setOutlinerVisible((visible) => !visible), []);
+  const { textLocked, showEffectControls, graph, version, selected, setSelected, message, setMessage, contextMenu, host, link, startup, drift, storageRef, saveStatus, saveGraph, canEdit, commands, handlePaneContextMenu, closeContextMenu, addEffectNode, addExpressionNode, ping, onGestureStart, onGestureEnd, addLayer, rename, remove, addFx, setBlend, counts, startEmptyGraph, createNewComp, reviewSaved, keepGraph, useAeChanges, playback } = usePanelLifecycle();
 
   return (
     <div className="ntl-app">
@@ -75,11 +82,18 @@ export default function App() {
             <button onClick={() => { addExpressionNode(contextMenu); closeContextMenu(); }}>Expression</button>
           </div>
         )}
-        <Outliner graph={graph} commands={commands} version={version} editable={canEdit} selected={selected} onSelect={setSelected} />
-        <Inspector graph={graph} selected={selected} commands={commands} editable={canEdit}
-          textLocked={textLocked} onError={setMessage} />
+        {outlinerVisible && <Outliner graph={graph} commands={commands} version={version} editable={canEdit} selected={selected} onSelect={setSelected} />}
+        {inspectorVisible && <Inspector graph={graph} selected={selected} commands={commands} editable={canEdit}
+          textLocked={textLocked} onError={setMessage} />}
+        <PanelVisibilityControls {...{
+          inspectorVisible, outlinerVisible,
+          onToggleInspector: toggleInspector,
+          onToggleOutliner: toggleOutliner,
+        }} />
         <SyncPanels {...{ host, startup, drift, startEmptyGraph, reviewSaved, createNewComp, keepGraph, useAeChanges }} />
       </div>
+
+      <PlaybackBar playback={playback} />
 
       <footer className="ntl-foot">
         <span title={storageRef.current?.path}>{saveStatus}</span>

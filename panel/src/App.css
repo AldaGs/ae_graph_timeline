@@ -47,7 +47,7 @@ html, body, #root {
 /* Blender puts the object's icon and name above the panels, in its own strip. */
 .ntl-inspector-head {
   display: flex; align-items: center; gap: 6px;
-  padding: 6px 8px; border-bottom: 1px solid var(--ntl-line);
+  padding: 4px 8px; border-bottom: 1px solid var(--ntl-line);
   background: var(--ntl-bg);
 }
 .ntl-inspector-kind {
@@ -55,7 +55,7 @@ html, body, #root {
   text-transform: uppercase; letter-spacing: 0.05em;
 }
 .ntl-inspector-head input {
-  flex: 1 1 auto; min-width: 0; padding: 3px 6px;
+  flex: 1 1 auto; min-width: 0; height: 20px; padding: 2px 5px;
   background: #2a2a2a; color: var(--ntl-text);
   border: 1px solid transparent; border-radius: 3px; font: inherit;
 }
@@ -73,12 +73,12 @@ html, body, #root {
 
 .ntl-section-head {
   display: flex; align-items: center; gap: 4px; width: 100%;
-  padding: 5px 8px; background: rgba(255, 255, 255, 0.03);
+  padding: 4px 8px; background: rgba(255, 255, 255, 0.03);
   border: none; border-radius: 0; color: var(--ntl-text);
   font: inherit; font-weight: 600; text-align: left; cursor: pointer;
 }
 .ntl-section-head:hover { background: rgba(255, 255, 255, 0.07); }
-.ntl-section-body { padding: 5px 8px 8px; }
+.ntl-section-body { padding: 3px 8px 5px; }
 
 /* ------------------------------------------------------- an inspector row
 
@@ -94,7 +94,7 @@ html, body, #root {
   grid-template-columns: 72px 1fr 14px;
   align-items: center;
   gap: 5px;
-  margin: 2px 0;
+  margin: 1px 0;
 }
 
 .ntl-irow-label {
@@ -120,7 +120,7 @@ html, body, #root {
 
 .ntl-irow select,
 .ntl-irow input {
-  width: 100%; min-width: 0; padding: 3px 6px;
+  width: 100%; min-width: 0; height: 19px; padding: 1px 5px;
   background: #2a2a2a; color: var(--ntl-text);
   border: 1px solid transparent; border-radius: 3px; font: inherit;
 }
@@ -140,7 +140,8 @@ html, body, #root {
   justify-content: flex-end;
   gap: 3px;
   min-width: 0;
-  padding: 3px 6px;
+  min-height: 19px;
+  padding: 1px 6px;
   background: #2a2a2a;
   border: 1px solid transparent;
   border-radius: 3px;
@@ -150,6 +151,7 @@ html, body, #root {
 .ntl-scrub:hover { background: #333; }
 .ntl-scrub.is-editing { background: var(--ntl-bg); border-color: var(--ntl-edge); cursor: text; }
 .ntl-scrub.is-disabled { cursor: default; opacity: 0.6; }
+.ntl-scrub:not(.is-editing):not(.is-disabled) { padding-left: 18px; padding-right: 18px; }
 
 .ntl-scrub-input {
   flex: 1 1 auto;
@@ -201,6 +203,28 @@ html, body, #root {
 
 button:focus-visible, input:focus-visible, select:focus-visible, summary:focus-visible { outline: 2px solid var(--ntl-edge); outline-offset: 2px; }
 .ntl-outliner { resize: horizontal; min-width: 180px; max-width: 45%; }
+
+/* Edge tabs keep both overlays recoverable even when the keyboard shortcut is
+   forgotten. They sit on the canvas edge instead of consuming toolbar space. */
+.ntl-panel-toggle {
+  position: absolute;
+  top: 50%;
+  z-index: 1200;
+  width: 18px;
+  height: 34px;
+  padding: 0;
+  transform: translateY(-50%);
+  background: #252525;
+  border-color: var(--ntl-line);
+  color: var(--ntl-dim);
+  font-size: 9px;
+  font-weight: 700;
+  opacity: 0.78;
+}
+.ntl-panel-toggle:hover:not(:disabled),
+.ntl-panel-toggle.is-open { opacity: 1; color: var(--ntl-text); }
+.ntl-panel-toggle.is-inspector { left: 0; border-left: 0; border-radius: 0 3px 3px 0; }
+.ntl-panel-toggle.is-outliner { right: 0; border-right: 0; border-radius: 3px 0 0 3px; }
 
 /* ------------------------------------------------------------------ the bar */
 
@@ -431,6 +455,134 @@ button:disabled { opacity: 0.4; cursor: default; }
 .react-flow__minimap { background: #1a1a1a; }
 
 /* ----------------------------------------------------------------- the foot */
+
+.ntl-playback {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0;
+  min-height: 54px;
+  padding: 0;
+  background: #202020;
+  border-top: 1px solid var(--ntl-line);
+  color: var(--ntl-dim);
+  flex: 0 0 auto;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow-x: auto;
+}
+.ntl-ruler {
+  position: relative;
+  width: 100%;
+  min-width: 320px;
+  height: 25px;
+  flex: 0 0 25px;
+  overflow: hidden;
+  cursor: ew-resize;
+  background: #191919;
+  border-bottom: 1px solid #313131;
+  touch-action: none;
+  user-select: none;
+}
+.ntl-ruler.is-disabled { cursor: default; opacity: 0.55; }
+.ntl-ruler-inner {
+  position: absolute;
+  inset: 0 11px;
+  background-image: repeating-linear-gradient(to right,
+    transparent 0, transparent calc(5% - 1px), #323232 calc(5% - 1px), #323232 5%);
+}
+.ntl-work-range {
+  position: absolute;
+  top: 15px;
+  bottom: 0;
+  min-width: 1px;
+  background: rgba(91, 157, 217, 0.15);
+  border-top: 1px solid rgba(91, 157, 217, 0.45);
+}
+.ntl-ruler-start, .ntl-ruler-end {
+  position: absolute;
+  top: 9px;
+  color: #777;
+  font-size: 9px;
+  line-height: 12px;
+  pointer-events: none;
+}
+.ntl-ruler-start { left: 2px; }
+.ntl-ruler-end { right: 2px; }
+.ntl-playhead {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  color: #d7ebff;
+  background: var(--ntl-edge);
+  pointer-events: none;
+  z-index: 2;
+}
+.ntl-playhead-label {
+  position: absolute;
+  top: 0;
+  left: 0;
+  min-width: 22px;
+  height: 12px;
+  padding: 0 4px;
+  transform: translateX(-50%);
+  border-radius: 2px 2px 1px 1px;
+  background: var(--ntl-edge);
+  color: #101820;
+  font-size: 9px;
+  font-weight: 600;
+  line-height: 12px;
+  text-align: center;
+}
+.ntl-playhead-line { position: absolute; top: 12px; bottom: 0; left: 0; width: 1px; background: var(--ntl-edge); }
+.ntl-playback-controls-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  width: 100%;
+  min-width: max-content;
+  min-height: 29px;
+  padding: 3px 10px;
+}
+.ntl-transport-controls { display: flex; align-items: center; gap: 1px; }
+.ntl-transport-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 23px;
+  height: 22px;
+  padding: 0;
+  background: transparent;
+  border-color: transparent;
+  color: var(--ntl-text);
+}
+.ntl-transport-button:hover:not(:disabled) { background: #393939; }
+.ntl-transport-button.ntl-loop { margin-left: 3px; color: var(--ntl-dim); }
+.ntl-transport-button.ntl-loop.is-active {
+  color: #dcecff;
+  background: rgba(91, 157, 217, 0.2);
+  border-color: rgba(91, 157, 217, 0.55);
+}
+.ntl-frame-field { display: inline-flex; align-items: center; gap: 5px; }
+.ntl-current-frame {
+  width: 62px;
+  height: 21px;
+  padding: 2px 6px;
+  color: var(--ntl-text);
+  background: #303030;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+.ntl-current-frame:hover:not(:disabled) { background: #383838; }
+.ntl-current-frame:focus { background: var(--ntl-bg); border-color: var(--ntl-edge); }
+.ntl-current-frame::-webkit-inner-spin-button { opacity: 0; }
+.ntl-work-area { color: var(--ntl-text); }
+.ntl-fps { color: var(--ntl-dim); }
 
 .ntl-foot {
   display: flex;
