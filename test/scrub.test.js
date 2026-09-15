@@ -11,7 +11,7 @@ import assert from 'node:assert/strict';
 
 import {
   applyScrub, clampScrub, decimalsFor, formatScrub, parseScrub, scrubFieldsFor,
-  scrubSpecFor, scrubLabelFor, stepScrub, withComponent, COARSE, FINE,
+  scrubSpecFor, scrubLabelFor, scrubModifiers, stepScrub, withComponent, COARSE, FINE,
 } from '../src/scrub.js';
 
 test('dragging right raises a value and dragging left lowers it', () => {
@@ -171,4 +171,43 @@ test('a known property is labelled as AE labels it; a parameter is not guessed a
   // An effect parameter's display name is something AE never hands over, so the
   // matchName is shown rather than a prettied-up guess at one.
   assert.equal(scrubLabelFor('ADBE Fill-0002'), 'ADBE Fill-0002');
+});
+
+test('the modifiers are read in exactly one place, so they cannot disagree', () => {
+  // They did disagree: a value could be dragged, arrowed, or stepped with the
+  // field's own arrows, and the arrows honoured Shift while silently dropping
+  // Ctrl - the same key meaning "finer" in two places and nothing in the third.
+  assert.deepEqual(scrubModifiers({}), { shift: false, fine: false });
+  assert.deepEqual(scrubModifiers({ shiftKey: true }), { shift: true, fine: false });
+
+  // Ctrl on Windows, Cmd on macOS. AE's fine modifier is the platform's command
+  // key, and honouring only one would be wrong on half the machines.
+  assert.deepEqual(scrubModifiers({ ctrlKey: true }), { shift: false, fine: true });
+  assert.deepEqual(scrubModifiers({ metaKey: true }), { shift: false, fine: true });
+
+  // Nothing at all is still an answer, because a synthesized step has no event.
+  assert.deepEqual(scrubModifiers(undefined), { shift: false, fine: false });
+  assert.deepEqual(scrubModifiers(null), { shift: false, fine: false });
+});
+
+test('everything held at once is coarse, not a third behaviour', () => {
+  const spec = scrubSpecFor('position', [0, 0]);
+  const both = scrubModifiers({ shiftKey: true, ctrlKey: true });
+  assert.deepEqual(both, { shift: true, fine: true });
+  // A user pressing everything is more plausibly reaching for the big movement.
+  assert.equal(applyScrub({ start: 0, dx: 10, spec, ...both }), 10 * COARSE);
+  assert.equal(stepScrub({ value: 0, direction: 1, spec, ...both }), COARSE);
+});
+
+test('a drag, an arrow key and a step arrow move a value identically', () => {
+  // The three paths a value can move by. Given the same modifiers they have to
+  // land on the same number, or the field behaves differently depending on
+  // which part of it the user touched.
+  const spec = scrubSpecFor('opacity', 100);
+  for (const event of [{}, { shiftKey: true }, { ctrlKey: true }, { metaKey: true }]) {
+    const mods = scrubModifiers(event);
+    const dragged = applyScrub({ start: 50, dx: 1, spec, ...mods });
+    const arrowed = stepScrub({ value: 50, direction: 1, spec, ...mods });
+    assert.equal(dragged, arrowed, `modifiers ${JSON.stringify(event)}`);
+  }
 });

@@ -24,6 +24,27 @@ export const COARSE = 10;
 export const FINE = 0.1;
 
 /**
+ * The modifiers, read from an event. One function, because there are three
+ * places a value can be moved - dragged, arrowed, or stepped with the field's
+ * own arrows - and three readings of "what is held down" is three chances for
+ * them to disagree. They did: the step arrows honoured Shift and silently
+ * dropped Ctrl, so the same modifier meant "finer" in two places and nothing
+ * in the third.
+ *
+ * Ctrl OR Cmd, because AE's fine modifier is the platform's command key and a
+ * panel that honoured only one would be wrong on half the machines it runs on.
+ *
+ * Both held at once is coarse: `applyScrub` lets Shift win, and a user pressing
+ * everything is more plausibly reaching for the big movement.
+ */
+export function scrubModifiers(event) {
+  return {
+    shift: !!event?.shiftKey,
+    fine: !!(event?.ctrlKey || event?.metaKey),
+  };
+}
+
+/**
  * What a property's numbers are.
  *
  * The transform properties are known, so their units and limits are facts
@@ -116,7 +137,7 @@ export function applyScrub({ start, dx, spec, shift = false, fine = false }) {
   return clampScrub(tidy(start + delta, start, step * scale), spec);
 }
 
-/** The keyboard's version of the same thing: one step, or ten with Shift. */
+/** The keyboard's version of the same thing, under the same modifiers. */
 export function stepScrub({ value, direction, spec, shift = false, fine = false }) {
   return applyScrub({ start: value, dx: direction * (spec?.pixelsPerStep ?? PIXELS_PER_STEP),
                       spec, shift, fine });

@@ -24,7 +24,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 
-import { applyScrub, formatScrub, parseScrub, stepScrub } from '../../../src/scrub.js';
+import {
+  applyScrub, formatScrub, parseScrub, scrubModifiers, stepScrub,
+} from '../../../src/scrub.js';
 
 // How far the pointer travels before a press becomes a drag rather than a click.
 // Small enough that a deliberate nudge scrubs, large enough that a click with an
@@ -79,9 +81,12 @@ export default function ScrubValue({
     return parsed === null ? value : parsed;
   };
 
-  const step = (direction, modifiers = {}) => {
+  // Every way of moving this value goes through here, under the modifiers
+  // scrubModifiers read from the event that caused it - so Shift and Ctrl mean
+  // the same thing whether the number was dragged, arrowed, or stepped.
+  const step = (direction, event) => {
     const from = effectiveValue();
-    const next = stepScrub({ value: from, direction, spec, ...modifiers });
+    const next = stepScrub({ value: from, direction, spec, ...scrubModifiers(event) });
     if (next === from) return;
     // The draft follows, so the number on screen is the number that was sent.
     if (editing) setDraft(formatScrub(next, spec));
@@ -108,8 +113,7 @@ export default function ScrubValue({
       onScrubStart?.();
     }
     event.preventDefault();
-    onScrub?.(applyScrub({ start: state.start, dx, spec,
-      shift: event.shiftKey, fine: event.ctrlKey || event.metaKey }));
+    onScrub?.(applyScrub({ start: state.start, dx, spec, ...scrubModifiers(event) }));
   };
 
   const endDrag = (event) => {
@@ -141,8 +145,7 @@ export default function ScrubValue({
     // The keyboard's version of a scrub, and the reason a scrubber still has to
     // be a real focusable field: arrowing a value is how it is done precisely.
     event.preventDefault();
-    step(event.key === 'ArrowUp' ? 1 : -1,
-      { shift: event.shiftKey, fine: event.ctrlKey || event.metaKey });
+    step(event.key === 'ArrowUp' ? 1 : -1, event);
   };
 
   // Blender's step arrows, which appear on hover at each end of the field. They
@@ -157,7 +160,7 @@ export default function ScrubValue({
       // Pointer events are stopped, not just the click: the field's own
       // pointerdown would otherwise start a drag from under the arrow.
       onPointerDown={(e) => e.stopPropagation()}
-      onClick={(e) => { e.stopPropagation(); step(direction, { shift: e.shiftKey }); }}
+      onClick={(e) => { e.stopPropagation(); step(direction, e); }}
     >
       <Icon size={11} strokeWidth={2.25} aria-hidden="true" />
     </button>
