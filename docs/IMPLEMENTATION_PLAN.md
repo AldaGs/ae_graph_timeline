@@ -318,6 +318,10 @@ an empty reconciliation patch.
 
 **Outcome:** routine work no longer depends on browser prompts or hidden rules.
 
+The remaining implementation is specified in [`M4.6.md`](M4.6.md). Before M7,
+M4.6 now explicitly includes source-backed footage import and Monaco expression
+editing, in addition to the previously open unmanaged-layer workflow.
+
 ### Progress
 
 - [x] Selection-linked inspector and keyboard-accessible outliner selection.
@@ -328,12 +332,16 @@ an empty reconciliation patch.
 - [x] Context-menu creation coordinates account for pan and zoom.
 - [x] Collapsible/resizable outliner, theme tokens and visible focus styles.
 - [ ] Full installed-effect catalogue, unmanaged-layer Import/Ignore workflow.
+- [ ] Import file-backed footage into AE and create a source-backed managed node.
+- [ ] Monaco editor for the selected expression, with one commit per edit session
+      and AE runtime-error feedback.
 - [ ] Keyboard connection authoring and real AE usability acceptance matrix.
 
-Validation: 151 automated tests pass, including inspector finite-number, range,
-vector-dimension and linked-property refusal tests. Production panel/host build
-passes. Keyboard focus, selection, deletion confirmation and pan/zoom placement
-still require interactive AE acceptance; this milestone is not yet complete.
+Current repository gate: 241 core tests and 10 panel tests pass, alongside JSX
+preflight and the production panel/host build. The completed inspector coverage
+includes finite-number, range, vector-dimension and linked-property refusals.
+The new footage, adoption, Monaco, keyboard-connection, and installed-effect
+acceptance rows remain open; this milestone is not yet complete.
 
 ### Implementation
 
@@ -351,6 +359,10 @@ still require interactive AE acceptance; this milestone is not yet complete.
   identification.
 - Confirm destructive deletion and show an undoable result message.
 - Surface unmanaged-layer count with explicit `Import` and `Ignore` choices.
+- Add an explicit `Import Footage…` transaction; preserve AE project-item identity
+  and never create a solid as a fallback for unresolved footage.
+- Replace expression-node textarea editing with one lazy-loaded Monaco surface;
+  keep cards lightweight and treat AE, not Monaco, as the expression validator.
 
 ### Tests
 
