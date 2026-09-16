@@ -234,6 +234,7 @@ export class FakeFootageItem {
     this.project = project;
     this.id = nextItemId++;
     this.name = file.name;
+    this.typeName = 'Footage';
     this.mainSource = { file };
     this.footageMissing = false;
   }
@@ -247,6 +248,7 @@ export class FakeComp {
   constructor(project, name = 'Shot 01') {
     this.project = project;
     this.name = name;
+    this.typeName = 'Composition';
     this.id = 1;
     this.width = 1920;
     this.height = 1080;
@@ -397,6 +399,14 @@ export function makeAE({ strictCompChecks = false } = {}) {
   project.importFile = (options) => {
     if (!options?.file?.exists) throw new Error('cannot import missing file');
     const item = new FakeFootageItem(project, options.file);
+    if (strictCompChecks) {
+      Object.defineProperty(item, 'layer', {
+        get() { throw new Error('Item must be a comp'); },
+      });
+      Object.defineProperty(item, 'layers', {
+        get() { throw new Error('Item must be a comp'); },
+      });
+    }
     project._items.push(item);
     project.revision++;
     return item;

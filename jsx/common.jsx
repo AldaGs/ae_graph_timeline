@@ -76,15 +76,21 @@ function ntlrNodeIdFromTag(comment) {
     return s.slice(NTLR_TAG_PREFIX.length);
 }
 
-// Do not use `item instanceof CompItem` at a project-item boundary. Some AE
-// builds raise the host assertion "Item must be a comp" when the active item is
-// footage (notably just after importing an image sequence), instead of simply
-// returning false. A CompItem's layer() method is the capability we actually
-// need, and probing a missing host-object member is safe and side-effect free.
+// Do not probe a comp-only member at a project-item boundary. AE raises the
+// host assertion "Item must be a comp" before ExtendScript can catch it when a
+// FootageItem receives a `.layer`/`.layers` lookup. Item.typeName belongs to the
+// common Item base class, so it is safe for comps, footage, and folders alike.
+// Adobe documents typeName as localized; keep the supported AE translations in
+// one place rather than falling back to a dangerous capability probe.
 function ntlrIsCompItem(item) {
     if (!item) return false;
     try {
-        return typeof item.layer === 'function' && item.layers !== undefined;
+        var kind = String(item.typeName || '');
+        return kind === 'Composition' || kind === 'Komposition'
+            || kind === 'Composición' || kind === 'Composizione'
+            || kind === 'コンポジション' || kind === '컴포지션'
+            || kind === 'Composição' || kind === 'Композиция'
+            || kind === '合成';
     } catch (e) {
         return false;
     }
